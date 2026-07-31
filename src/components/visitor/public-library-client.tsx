@@ -1,0 +1,218 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { Search, Dumbbell } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import { EntryCard } from "@/components/entry-card";
+import { EmptyState } from "@/components/empty-state";
+import { exerciseKey, type WorkoutEntry } from "@/lib/types";
+
+function groupByExerciseForDisplay(entries: WorkoutEntry[]) {
+  const groups = new Map<string, { representative: WorkoutEntry; count: number }>();
+  for (const e of entries) {
+    const key = exerciseKey(e);
+    const existing = groups.get(key);
+    if (existing) existing.count += 1;
+    else groups.set(key, { representative: e, count: 1 });
+  }
+  return Array.from(groups.values());
+}
+
+const SORT_OPTIONS = [
+  { value: "date:desc", label: "Newest first" },
+  { value: "date:asc", label: "Oldest first" },
+  { value: "difficulty:desc", label: "Hardest first" },
+  { value: "difficulty:asc", label: "Easiest first" },
+  { value: "exercise:asc", label: "Exercise name (A–Z)" },
+];
+
+export function PublicLibraryClient() {
+  const [entries, setEntries] = useState<WorkoutEntry[] | null>(null);
+  const [facets, setFacets] = useState<{ exercises: string[]; tags: string[] }>({
+    exercises: [],
+    tags: [],
+  });
+
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [tag, setTag] = useState("all");
+  const [difficulty, setDifficulty] = useState("all");
+  const [favorite, setFavorite] = useState(false);
+  const [sortValue, setSortValue] = useState("date:desc");
+  const [sort, order] = sortValue.split(":");
+
+  // Reset the (now stale) results the moment any filter changes, so the loading skeleton shows
+  // right away instead of the old list lingering until the new fetch resolves. Done here, during
+  // render, rather than in the effect below -- see https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes.
+  const queryKey = [debouncedSearch, tag, difficulty, favorite, sort, order].join("|");
+  const [lastQueryKey, setLastQueryKey] = useState(queryKey);
+  if (queryKey !== lastQueryKey) {
+    setLastQueryKey(queryKey);
+    setEntries(null);
+  }
+
+  useEffect(() => {
+    fetch("/api/public/facets")
+      .then((r) => r.json())
+      .then(setFacets)
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(id);
+  }, [search]);
+
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (debouncedSearch) params.set("q", debouncedSearch);
+    if (tag !== "all") params.set("tag", tag);
+    if (difficulty !== "all") params.set("difficulty", difficulty);
+    if (favorite) params.set("favorite", "true");
+    params.set("sort", sort);
+    params.set("order", order);
+
+    let cancelled = false;
+    fetch(`/api/public/entries?${params.toString()}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (!cancelled) setEntries(data);
+      })
+      .catch(() => {
+        if (!cancelled) setEntries([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [debouncedSearch, tag, difficulty, favorite, sort, order]);
+
+  const groups = useMemo(() => (entries ? groupByExerciseForDisplay(entries) : []), [entries]);
+
+  return (
+    <div className="mx-auto max-w-6xl space-y-6 px-4 py-8">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">Library</h1>
+        <p className="text-muted-foreground">Every set logged here, in one place.</p>
+      </div>
+
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+        <div className="relative flex-1 sm:max-w-xs">
+          <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search exercise…"
+            className="pl-8"
+          />
+        </div>
+
+        <Select
+          value="all"
+          onValueChange={(v) => {
+            if (v && v !== "all") setSearch(v);
+          }}
+        >
+          <SelectTrigger className="w-full sm:w-44">
+            <SelectValue placeholder="Jump to exercise" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Jump to exercise…</SelectItem>
+            {facets.exercises.map((ex) => (
+              <SelectItem key={ex} value={ex}>
+                {ex}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select value={tag} onValueChange={(v) => v && setTag(v)}>
+          <SelectTrigger className="w-full sm:w-40">
+            <SelectValue placeholder="Tag" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All tags</SelectItem>
+            {facets.tags.map((t) => (
+              <SelectItem key={t} value={t}>
+                {t}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select value={difficulty} onValueChange={(v) => v && setDifficulty(v)}>
+          <SelectTrigger className="w-full sm:w-36">
+            <SelectValue placeholder="Exertion" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Any exertion</SelectItem>
+            {[1, 2, 3, 4, 5].map((d) => (
+              <SelectItem key={d} value={String(d)}>
+                Exertion {d}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select value={sortValue} onValueChange={(v) => v && setSortValue(v)}>
+          <SelectTrigger className="w-full sm:w-44">
+            <SelectValue placeholder="Sort" />
+          </SelectTrigger>
+          <SelectContent>
+            {SORT_OPTIONS.map((o) => (
+              <SelectItem key={o.value} value={o.value}>
+                {o.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <div className="flex items-center gap-2 sm:ml-auto">
+          <Switch id="favorite" checked={favorite} onCheckedChange={setFavorite} />
+          <Label htmlFor="favorite" className="text-sm font-normal">
+            Favorites only
+          </Label>
+        </div>
+      </div>
+
+      {entries === null ? (
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <Skeleton key={i} className="aspect-[4/5] w-full rounded-xl" />
+          ))}
+        </div>
+      ) : entries.length === 0 ? (
+        <EmptyState
+          icon={Dumbbell}
+          title="No entries match these filters"
+          description="Try clearing a filter to see more."
+        />
+      ) : (
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+          {groups.map(({ representative, count }) => (
+            <EntryCard
+              key={representative.id}
+              entry={representative}
+              count={count}
+              basePath="/visitor"
+              href={
+                count > 1
+                  ? `/visitor/exercise?name=${encodeURIComponent(representative.exerciseName)}`
+                  : undefined
+              }
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}

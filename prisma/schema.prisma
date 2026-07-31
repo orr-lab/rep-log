@@ -1,0 +1,83 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum VideoSource {
+  UPLOAD
+  YOUTUBE
+}
+
+model User {
+  id                    String         @id @default(cuid())
+  username              String         @unique
+  isAdmin               Boolean        @default(false)
+  passwordHash          String
+  visitorPasswordHash   String?
+  publicProfileEnabled  Boolean        @default(false)
+  videoUploadsEnabled   Boolean        @default(true)
+  createdAt             DateTime       @default(now())
+  entries               WorkoutEntry[]
+}
+
+model WorkoutEntry {
+  id           String      @id @default(cuid())
+  exerciseName String
+  weight       Float?
+  recordedAt   DateTime
+  videoSource  VideoSource
+  videoUrl     String
+  youtubeId    String?
+  durationSec  Int?
+  sets         Int?
+  reps         Int?
+  tags         String[]    @default([])
+  difficulty   Int
+  notes        String?
+  isFavorite   Boolean     @default(false)
+  aiRating     Int?
+  aiFeedback   String?
+  aiFeedbackAt DateTime?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  comments Comment[]
+
+  @@index([exerciseName])
+  @@index([recordedAt])
+  @@index([userId])
+}
+
+// A lightweight guestbook-style note on an entry -- not tied to a distinct commenter identity,
+// since the visitor role is just "whoever holds this account's visitor password," not a separate
+// person account. postedByRole records which role posted it (for display, e.g. an "Owner" vs
+// "Visitor" badge); authorName is an optional free-text label the poster can add themselves.
+model Comment {
+  id           String   @id @default(cuid())
+  body         String
+  authorName   String?
+  postedByRole String
+  createdAt    DateTime @default(now())
+
+  entryId String
+  entry   WorkoutEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+
+  @@index([entryId])
+}
+
+model LoginAttempt {
+  id        String   @id @default(cuid())
+  ip        String
+  username  String
+  createdAt DateTime @default(now())
+
+  @@index([ip, createdAt])
+  @@index([username, createdAt])
+}
