@@ -4,16 +4,18 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
-export function ExerciseNameInput({
+export function AutocompleteInput({
   value,
   onChange,
   suggestions,
+  placeholder,
   id,
 }: {
   value: string;
   onChange: (value: string) => void;
-  /** Merged list of previously-logged exercise names + a common-exercise catalog. */
+  /** Merged list of previously-logged values + (where it makes sense) a common catalog. */
   suggestions: string[];
+  placeholder?: string;
   id?: string;
 }) {
   const [open, setOpen] = useState(false);
@@ -47,7 +49,7 @@ export function ExerciseNameInput({
           setOpen(true);
         }}
         onFocus={() => setOpen(true)}
-        placeholder="Barbell Squat"
+        placeholder={placeholder}
         autoComplete="off"
         required
       />

@@ -23,11 +23,11 @@ import {
 } from "@/components/ui/select";
 import { TagInput } from "@/components/tag-input";
 import { ExertionPicker } from "@/components/exertion-picker";
-import { ExerciseNameInput } from "@/components/exercise-name-input";
+import { AutocompleteInput } from "@/components/autocomplete-input";
 import { extractYouTubeId, youtubeEmbedUrl } from "@/lib/youtube";
 import { MAX_UPLOAD_BYTES } from "@/lib/validation";
 import { COMMON_EXERCISES, COMMON_TAGS } from "@/lib/exercise-catalog";
-import { GRADE_OPTIONS, formatGrade } from "@/lib/climbing";
+import { GRADE_OPTIONS, formatGrade, COMMON_CLIMBING_TAGS } from "@/lib/climbing";
 import type { WorkoutEntry, VideoSource } from "@/lib/types";
 
 function toDateInputValue(iso?: string) {
@@ -102,13 +102,22 @@ export function WorkoutEntryForm({
       .catch(() => {});
   }, []);
 
+  // Route/problem names don't have a "common catalog" the way weightlifting exercises do --
+  // they're arbitrary, gym-assigned names -- so in climbing mode only suggest what this account
+  // has actually logged before, without merging in the (irrelevant) weightlifting exercise list.
   const exerciseSuggestions = useMemo(
-    () => Array.from(new Set([...loggedExercises, ...COMMON_EXERCISES])),
-    [loggedExercises]
+    () =>
+      climbingMode
+        ? Array.from(new Set(loggedExercises))
+        : Array.from(new Set([...loggedExercises, ...COMMON_EXERCISES])),
+    [loggedExercises, climbingMode]
   );
   const tagSuggestions = useMemo(
-    () => Array.from(new Set([...loggedTags, ...COMMON_TAGS])),
-    [loggedTags]
+    () =>
+      Array.from(
+        new Set([...loggedTags, ...(climbingMode ? COMMON_CLIMBING_TAGS : COMMON_TAGS)])
+      ),
+    [loggedTags, climbingMode]
   );
   const gymSuggestions = useMemo(() => Array.from(new Set(loggedGyms)), [loggedGyms]);
 
@@ -407,11 +416,12 @@ export function WorkoutEntryForm({
       <section className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
           <Label htmlFor="exerciseName">{climbingMode ? "Route / problem" : "Exercise"}</Label>
-          <ExerciseNameInput
+          <AutocompleteInput
             id="exerciseName"
             value={exerciseName}
             onChange={setExerciseName}
             suggestions={exerciseSuggestions}
+            placeholder={climbingMode ? "e.g. Blue arête (optional detail)" : "Barbell Squat"}
           />
         </div>
         <div className="space-y-2">
@@ -429,11 +439,12 @@ export function WorkoutEntryForm({
           <>
             <div className="space-y-2">
               <Label htmlFor="gym">Gym</Label>
-              <ExerciseNameInput
+              <AutocompleteInput
                 id="gym"
                 value={gym}
                 onChange={setGym}
                 suggestions={gymSuggestions}
+                placeholder="e.g. Movement, Brooklyn Boulders"
               />
             </div>
             <div className="space-y-2">
@@ -535,7 +546,7 @@ export function WorkoutEntryForm({
         <TagInput
           value={tags}
           onChange={setTags}
-          placeholder="Push, legs, cardio…"
+          placeholder={climbingMode ? "Bouldering, crimpy, overhang…" : "Push, legs, cardio…"}
           suggestions={tagSuggestions}
         />
       </section>

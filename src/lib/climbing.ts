@@ -12,6 +12,31 @@ export function formatGrade(grade: number): string {
   return `V${grade}`;
 }
 
+/** Climbing-specific tag catalog, used instead of the general COMMON_TAGS catalog
+ *  (src/lib/exercise-catalog.ts) when the account is in climbing mode -- Push/Legs/Chest/etc.
+ *  don't apply here. */
+export const COMMON_CLIMBING_TAGS = [
+  "Bouldering",
+  "Lead",
+  "Top Rope",
+  "Slab",
+  "Overhang",
+  "Crimpy",
+  "Slopers",
+  "Dyno",
+  "Technical",
+  "Powerful",
+  "Endurance",
+  "Footwork",
+  "Core",
+  "Flash",
+  "Send",
+  "Project",
+  "Outdoor",
+  "Comp",
+  "Warmup",
+];
+
 export interface GymRecord {
   gym: string;
   bestGrade: number;
