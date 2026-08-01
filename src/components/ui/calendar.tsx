@@ -214,7 +214,14 @@ function CalendarDayButton({
         className
       )}
       {...props}
-    />
+    >
+      {props.children}
+      {/* Generic per-day indicator dot -- pass `modifiers={{ dot: [...dates] }}` to DayPicker to
+          mark specific days (e.g. "a workout happened here"), independent of selection/today. */}
+      {modifiers.dot && (
+        <span className="absolute bottom-1 left-1/2 size-1 -translate-x-1/2 rounded-full bg-primary" />
+      )}
+    </Button>
   )
 }
 

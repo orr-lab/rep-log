@@ -161,7 +161,7 @@ export function AddPlanDialog({
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
-              <Label htmlFor="plan-sets">Sets</Label>
+              <Label htmlFor="plan-sets">{climbingMode ? "Attempts" : "Sets"}</Label>
               <Input
                 id="plan-sets"
                 type="number"

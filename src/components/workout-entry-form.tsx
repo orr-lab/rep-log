@@ -25,6 +25,7 @@ import { TagInput } from "@/components/tag-input";
 import { ExertionPicker } from "@/components/exertion-picker";
 import { AutocompleteInput } from "@/components/autocomplete-input";
 import { extractYouTubeId, youtubeEmbedUrl } from "@/lib/youtube";
+import { extractVideoCreationDate } from "@/lib/video-metadata";
 import { MAX_UPLOAD_BYTES } from "@/lib/validation";
 import { COMMON_EXERCISES, COMMON_TAGS } from "@/lib/exercise-catalog";
 import { GRADE_OPTIONS, formatGrade, COMMON_CLIMBING_TAGS } from "@/lib/climbing";
@@ -78,6 +79,10 @@ export function WorkoutEntryForm({
   const [gym, setGym] = useState(initialData?.gym ?? "");
   const [grade, setGrade] = useState((initialData?.grade ?? fromPlan?.grade)?.toString() ?? "");
   const [recordedAt, setRecordedAt] = useState(toDateInputValue(initialData?.recordedAt));
+  // Tracks whether the user has touched the date field themselves, so an uploaded video's
+  // metadata date (see onDrop below) only ever fills in an untouched field -- it never clobbers
+  // a date the user already set or already changed their mind about.
+  const dateManuallyEditedRef = useRef(false);
   const [tags, setTags] = useState<string[]>(initialData?.tags ?? []);
   const [difficulty, setDifficulty] = useState(initialData?.difficulty ?? 3);
   const [sets, setSets] = useState((initialData?.sets ?? fromPlan?.sets)?.toString() ?? "");
@@ -166,6 +171,14 @@ export function WorkoutEntryForm({
     const objectUrl = URL.createObjectURL(file);
     setFilePreview(objectUrl);
 
+    if (mode === "create") {
+      extractVideoCreationDate(file).then((date) => {
+        if (date && !dateManuallyEditedRef.current) {
+          setRecordedAt(toDateInputValue(date.toISOString()));
+        }
+      });
+    }
+
     setUploading(true);
     setUploadProgress(0);
     try {
@@ -181,7 +194,7 @@ export function WorkoutEntryForm({
     } finally {
       setUploading(false);
     }
-  }, [userId]);
+  }, [userId, mode]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -450,7 +463,10 @@ export function WorkoutEntryForm({
             id="recordedAt"
             type="date"
             value={recordedAt}
-            onChange={(e) => setRecordedAt(e.target.value)}
+            onChange={(e) => {
+              setRecordedAt(e.target.value);
+              dateManuallyEditedRef.current = true;
+            }}
             required
           />
         </div>
@@ -498,7 +514,7 @@ export function WorkoutEntryForm({
           </div>
         )}
 
-        <div className={climbingMode ? "" : "grid grid-cols-2 gap-2"}>
+        <div className="grid grid-cols-2 gap-2">
           <div className="space-y-2">
             <Label htmlFor="sets">{climbingMode ? "Attempts" : "Sets"}</Label>
             <Input
@@ -510,19 +526,17 @@ export function WorkoutEntryForm({
               placeholder="e.g. 3"
             />
           </div>
-          {!climbingMode && (
-            <div className="space-y-2">
-              <Label htmlFor="reps">Reps</Label>
-              <Input
-                id="reps"
-                type="number"
-                min={1}
-                value={reps}
-                onChange={(e) => setReps(e.target.value)}
-                placeholder="e.g. 5"
-              />
-            </div>
-          )}
+          <div className="space-y-2">
+            <Label htmlFor="reps">Reps</Label>
+            <Input
+              id="reps"
+              type="number"
+              min={1}
+              value={reps}
+              onChange={(e) => setReps(e.target.value)}
+              placeholder="e.g. 5"
+            />
+          </div>
         </div>
       </section>
 

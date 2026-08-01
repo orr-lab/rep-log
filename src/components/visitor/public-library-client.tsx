@@ -18,24 +18,38 @@ import { EmptyState } from "@/components/empty-state";
 import { exerciseKey, gymKey, type WorkoutEntry } from "@/lib/types";
 
 function groupByExerciseForDisplay(entries: WorkoutEntry[]) {
-  const groups = new Map<string, { representative: WorkoutEntry; count: number }>();
+  const groups = new Map<
+    string,
+    { representative: WorkoutEntry; count: number; succeededCount: number }
+  >();
   for (const e of entries) {
     const key = exerciseKey(e);
     const existing = groups.get(key);
-    if (existing) existing.count += 1;
-    else groups.set(key, { representative: e, count: 1 });
+    if (existing) {
+      existing.count += 1;
+      if (e.succeeded) existing.succeededCount += 1;
+    } else {
+      groups.set(key, { representative: e, count: 1, succeededCount: e.succeeded ? 1 : 0 });
+    }
   }
   return Array.from(groups.values());
 }
 
 function groupByGymGradeForDisplay(entries: WorkoutEntry[]) {
-  const groups = new Map<string, { representative: WorkoutEntry; count: number }>();
+  const groups = new Map<
+    string,
+    { representative: WorkoutEntry; count: number; succeededCount: number }
+  >();
   for (const e of entries) {
     if (e.gym == null || e.grade == null) continue;
     const key = `${gymKey(e)}::${e.grade}`;
     const existing = groups.get(key);
-    if (existing) existing.count += 1;
-    else groups.set(key, { representative: e, count: 1 });
+    if (existing) {
+      existing.count += 1;
+      if (e.succeeded) existing.succeededCount += 1;
+    } else {
+      groups.set(key, { representative: e, count: 1, succeededCount: e.succeeded ? 1 : 0 });
+    }
   }
   return Array.from(groups.values());
 }
@@ -253,11 +267,12 @@ export function PublicLibraryClient() {
         />
       ) : (
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-          {groups.map(({ representative, count }) => (
+          {groups.map(({ representative, count, succeededCount }) => (
             <EntryCard
               key={representative.id}
               entry={representative}
               count={count}
+              succeededCount={succeededCount}
               basePath="/visitor"
               href={
                 count > 1

@@ -1,10 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { Search, Dumbbell } from "lucide-react";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Search, Dumbbell, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
@@ -19,12 +22,19 @@ import { exerciseKey, gymKey, type WorkoutEntry } from "@/lib/types";
 import type { Role } from "@/lib/auth";
 
 function groupByExerciseForDisplay(entries: WorkoutEntry[]) {
-  const groups = new Map<string, { representative: WorkoutEntry; count: number }>();
+  const groups = new Map<
+    string,
+    { representative: WorkoutEntry; count: number; succeededCount: number }
+  >();
   for (const e of entries) {
     const key = exerciseKey(e);
     const existing = groups.get(key);
-    if (existing) existing.count += 1;
-    else groups.set(key, { representative: e, count: 1 });
+    if (existing) {
+      existing.count += 1;
+      if (e.succeeded) existing.succeededCount += 1;
+    } else {
+      groups.set(key, { representative: e, count: 1, succeededCount: e.succeeded ? 1 : 0 });
+    }
   }
   return Array.from(groups.values());
 }
@@ -32,13 +42,20 @@ function groupByExerciseForDisplay(entries: WorkoutEntry[]) {
 /** Same "first-encountered-in-current-sort-order wins as representative" approach as
  *  groupByExerciseForDisplay, just keyed on gym+grade instead of exercise name. */
 function groupByGymGradeForDisplay(entries: WorkoutEntry[]) {
-  const groups = new Map<string, { representative: WorkoutEntry; count: number }>();
+  const groups = new Map<
+    string,
+    { representative: WorkoutEntry; count: number; succeededCount: number }
+  >();
   for (const e of entries) {
     if (e.gym == null || e.grade == null) continue;
     const key = `${gymKey(e)}::${e.grade}`;
     const existing = groups.get(key);
-    if (existing) existing.count += 1;
-    else groups.set(key, { representative: e, count: 1 });
+    if (existing) {
+      existing.count += 1;
+      if (e.succeeded) existing.succeededCount += 1;
+    } else {
+      groups.set(key, { representative: e, count: 1, succeededCount: e.succeeded ? 1 : 0 });
+    }
   }
   return Array.from(groups.values());
 }
@@ -59,6 +76,18 @@ const CLIMBING_SORT_OPTIONS = [
 ];
 
 export default function LibraryPage() {
+  return (
+    <Suspense fallback={null}>
+      <LibraryPageContent />
+    </Suspense>
+  );
+}
+
+function LibraryPageContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const dateParam = searchParams.get("date");
+
   const [entries, setEntries] = useState<WorkoutEntry[] | null>(null);
   const [facets, setFacets] = useState<{ exercises: string[]; tags: string[]; gyms: string[] }>({
     exercises: [],
@@ -80,7 +109,9 @@ export default function LibraryPage() {
   // Reset the (now stale) results the moment any filter changes, so the loading skeleton shows
   // right away instead of the old list lingering until the new fetch resolves. Done here, during
   // render, rather than in the effect below -- see https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes.
-  const queryKey = [debouncedSearch, tag, gymFilter, difficulty, favorite, sort, order].join("|");
+  const queryKey = [debouncedSearch, tag, gymFilter, difficulty, favorite, dateParam, sort, order].join(
+    "|"
+  );
   const [lastQueryKey, setLastQueryKey] = useState(queryKey);
   if (queryKey !== lastQueryKey) {
     setLastQueryKey(queryKey);
@@ -122,6 +153,7 @@ export default function LibraryPage() {
     if (gymFilter !== "all") params.set("gym", gymFilter);
     if (difficulty !== "all") params.set("difficulty", difficulty);
     if (favorite) params.set("favorite", "true");
+    if (dateParam) params.set("date", dateParam);
     params.set("sort", sort);
     params.set("order", order);
 
@@ -137,7 +169,7 @@ export default function LibraryPage() {
     return () => {
       cancelled = true;
     };
-  }, [debouncedSearch, tag, gymFilter, difficulty, favorite, sort, order]);
+  }, [debouncedSearch, tag, gymFilter, difficulty, favorite, dateParam, sort, order]);
 
   const groups = useMemo(() => {
     if (!entries) return [];
@@ -154,6 +186,27 @@ export default function LibraryPage() {
             : `Every ${climbingMode ? "climb" : "set"} logged here, in one place.`}
         </p>
       </div>
+
+      {dateParam && (
+        <Badge variant="secondary" className="w-fit gap-1.5 py-1.5 pr-1.5 pl-2.5 text-sm">
+          {new Date(dateParam).toLocaleDateString(undefined, {
+            weekday: "long",
+            month: "long",
+            day: "numeric",
+            year: "numeric",
+            timeZone: "UTC",
+          })}
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            aria-label="Clear date filter"
+            onClick={() => router.push("/library")}
+          >
+            <X className="size-3" />
+          </Button>
+        </Badge>
+      )}
 
       <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
         <div className="relative flex-1 sm:max-w-xs">
@@ -270,11 +323,12 @@ export default function LibraryPage() {
         />
       ) : (
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-          {groups.map(({ representative, count }) => (
+          {groups.map(({ representative, count, succeededCount }) => (
             <EntryCard
               key={representative.id}
               entry={representative}
               count={count}
+              succeededCount={succeededCount}
               href={
                 count > 1
                   ? climbingMode

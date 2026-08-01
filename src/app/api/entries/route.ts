@@ -15,6 +15,7 @@ export async function GET(request: NextRequest) {
   const gym = params.get("gym")?.trim();
   const difficulty = params.get("difficulty");
   const favorite = params.get("favorite");
+  const date = params.get("date");
   const sort = params.get("sort") ?? "date";
   const order = params.get("order") === "asc" ? "asc" : "desc";
 
@@ -25,6 +26,12 @@ export async function GET(request: NextRequest) {
   if (gym) where.gym = { equals: gym, mode: "insensitive" };
   if (difficulty) where.difficulty = Number(difficulty);
   if (favorite === "true") where.isFavorite = true;
+  if (date) {
+    const start = new Date(date);
+    if (!Number.isNaN(start.getTime())) {
+      where.recordedAt = { gte: start, lt: new Date(start.getTime() + 24 * 60 * 60 * 1000) };
+    }
+  }
 
   const orderBy: Prisma.WorkoutEntryOrderByWithRelationInput =
     sort === "difficulty"
