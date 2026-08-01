@@ -77,7 +77,7 @@ export default async function EntryDetailPage({
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <Badge variant="outline">Exertion {entry.difficulty}/5</Badge>
+        <Badge variant="outline">Exertion {entry.difficulty}/10</Badge>
         {!entry.succeeded && (
           <Badge variant="outline" className="border-destructive/40 text-destructive">
             {isClimb ? "Didn't send" : "Missed"}

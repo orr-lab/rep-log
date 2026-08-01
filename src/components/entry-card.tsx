@@ -124,7 +124,7 @@ export function EntryCard({
             <span className="text-xs text-muted-foreground">
               {isStack ? `Latest ${date}` : date}
             </span>
-            <span className="text-xs text-muted-foreground">Exertion {entry.difficulty}/5</span>
+            <span className="text-xs text-muted-foreground">Exertion {entry.difficulty}/10</span>
           </div>
           {entry.tags.length > 0 && (
             <div className={cn("flex flex-wrap gap-1")}>

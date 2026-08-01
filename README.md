@@ -25,7 +25,7 @@ for uploaded video, and Recharts for the stats page.
 
 - **Log a set**: exercise name (autocompleted from your own history plus a built-in catalog of
   common lifts), date, weight (optional — many exercises are bodyweight or don't have a single
-  number, like cardio), sets, reps, perceived exertion (1-5), tags (also autocompleted),
+  number, like cardio), sets, reps, perceived exertion (1-10), tags (also autocompleted),
   free-text notes, and a sent/completed toggle (see [below](#marking-an-attempt-unsuccessful)),
   attached to either an uploaded video file or a YouTube link.
 - **Progress tracking**: a dashboard with streaks, training-time totals, and a "this week's

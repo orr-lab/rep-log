@@ -2,7 +2,20 @@
 
 import { cn } from "@/lib/utils";
 
-const LABELS = ["Easy", "Moderate", "Hard", "Very hard", "Max effort"];
+const LABELS = [
+  "Very easy",
+  "Easy",
+  "Moderate",
+  "Somewhat hard",
+  "Hard",
+  "Harder",
+  "Very hard",
+  "Really hard",
+  "Near max",
+  "Max effort",
+];
+
+const LEVELS = Array.from({ length: 10 }, (_, i) => i + 1);
 
 export function ExertionPicker({
   value,
@@ -12,15 +25,15 @@ export function ExertionPicker({
   onChange: (value: number) => void;
 }) {
   return (
-    <div className="flex items-center gap-2">
-      <div className="flex gap-1">
-        {[1, 2, 3, 4, 5].map((n) => (
+    <div className="flex flex-col items-start gap-2">
+      <div className="flex flex-wrap gap-1">
+        {LEVELS.map((n) => (
           <button
             key={n}
             type="button"
             onClick={() => onChange(n)}
             className={cn(
-              "flex size-9 items-center justify-center rounded-full border text-sm font-medium transition-colors",
+              "flex size-8 items-center justify-center rounded-full border text-sm font-medium transition-colors",
               n <= value
                 ? "border-primary bg-primary text-primary-foreground"
                 : "border-input bg-transparent text-muted-foreground hover:border-primary/50"

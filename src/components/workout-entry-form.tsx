@@ -84,7 +84,7 @@ export function WorkoutEntryForm({
   // a date the user already set or already changed their mind about.
   const dateManuallyEditedRef = useRef(false);
   const [tags, setTags] = useState<string[]>(initialData?.tags ?? []);
-  const [difficulty, setDifficulty] = useState(initialData?.difficulty ?? 3);
+  const [difficulty, setDifficulty] = useState(initialData?.difficulty ?? 5);
   const [sets, setSets] = useState((initialData?.sets ?? fromPlan?.sets)?.toString() ?? "");
   const [reps, setReps] = useState((initialData?.reps ?? fromPlan?.reps)?.toString() ?? "");
   const [notes, setNotes] = useState(initialData?.notes ?? fromPlan?.notes ?? "");

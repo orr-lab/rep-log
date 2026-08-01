@@ -138,8 +138,8 @@ export default async function PublicExercisePage({
                 <div className="mt-2 flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">
                     {isClimbView
-                      ? `Exertion ${e.difficulty}/5`
-                      : `${e.weight != null ? `${e.weight} lb/kg` : "Bodyweight"} · Exertion ${e.difficulty}/5`}
+                      ? `Exertion ${e.difficulty}/10`
+                      : `${e.weight != null ? `${e.weight} lb/kg` : "Bodyweight"} · Exertion ${e.difficulty}/10`}
                   </span>
                   {e.isFavorite && <span className="text-primary">★ favorite</span>}
                 </div>
@@ -173,13 +173,13 @@ export default async function PublicExercisePage({
                   <p className="text-sm text-muted-foreground">
                     {isClimbView ? (
                       <>
-                        Exertion {e.difficulty}/5
+                        Exertion {e.difficulty}/10
                         {e.sets != null ? ` · ${e.sets} attempt${e.sets === 1 ? "" : "s"}` : ""}
                       </>
                     ) : (
                       <>
                         {e.weight != null ? `${e.weight} lb/kg · ` : ""}
-                        Exertion {e.difficulty}/5
+                        Exertion {e.difficulty}/10
                         {e.sets != null && e.reps != null ? ` · ${e.sets}x${e.reps}` : ""}
                       </>
                     )}

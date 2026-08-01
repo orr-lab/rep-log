@@ -274,7 +274,7 @@ function LibraryPageContent() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Any exertion</SelectItem>
-            {[1, 2, 3, 4, 5].map((d) => (
+            {Array.from({ length: 10 }, (_, i) => i + 1).map((d) => (
               <SelectItem key={d} value={String(d)}>
                 Exertion {d}
               </SelectItem>

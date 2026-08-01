@@ -94,7 +94,7 @@ export default async function StatsPage() {
           Average self-rated exertion of sets logged each month.
         </p>
         <div className="rounded-xl border p-4">
-          <TrendLineChart data={difficultyTrend} valueLabel="avg. exertion" domain={[1, 5]} />
+          <TrendLineChart data={difficultyTrend} valueLabel="avg. exertion" domain={[1, 10]} />
         </div>
       </section>
 
