@@ -527,7 +527,7 @@ export function WorkoutEntryForm({
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="reps">Reps</Label>
+            <Label htmlFor="reps">{climbingMode ? "Sets" : "Reps"}</Label>
             <Input
               id="reps"
               type="number"

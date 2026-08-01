@@ -124,9 +124,14 @@ export function EntryCard({
             <span className="text-xs text-muted-foreground">
               {isStack ? `Latest ${date}` : date}
             </span>
-            <span className="text-xs text-muted-foreground">Exertion {entry.difficulty}/10</span>
+            {/* A climbing stack's exertion would just be whichever attempt got picked as the
+                group's representative -- not meaningful for the group as a whole, so it's
+                dropped along with the tags below for the same reason. */}
+            {!useGymGradeAsTitle && (
+              <span className="text-xs text-muted-foreground">Exertion {entry.difficulty}/10</span>
+            )}
           </div>
-          {entry.tags.length > 0 && (
+          {!useGymGradeAsTitle && entry.tags.length > 0 && (
             <div className={cn("flex flex-wrap gap-1")}>
               {entry.tags.slice(0, 3).map((tag) => (
                 <Badge key={tag} variant="secondary" className="text-xs">

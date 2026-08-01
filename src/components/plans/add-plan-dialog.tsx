@@ -172,7 +172,7 @@ export function AddPlanDialog({
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="plan-reps">Reps</Label>
+              <Label htmlFor="plan-reps">{climbingMode ? "Sets" : "Reps"}</Label>
               <Input
                 id="plan-reps"
                 type="number"
