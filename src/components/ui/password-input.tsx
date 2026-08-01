@@ -40,7 +40,7 @@ function PasswordInput({ className, onChange, ...props }: React.ComponentProps<"
         size="icon-xs"
         tabIndex={-1}
         aria-label={visible ? "Hide password" : "Show password"}
-        className="absolute top-1/2 right-0.5 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+        className="absolute top-1/2 right-0.5 z-10 -translate-y-1/2 text-muted-foreground hover:text-foreground"
         onClick={() => setVisible((v) => !v)}
       >
         {visible ? <EyeOff /> : <Eye />}

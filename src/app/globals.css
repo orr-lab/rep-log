@@ -155,3 +155,16 @@
   animation-name: onAutoFillStart;
   animation-duration: 1ms;
 }
+
+/*
+ * Chromium-based Edge renders its own built-in "reveal password" eye icon inside
+ * <input type="password"> once the field has content, at the same right-edge position as our
+ * custom show/hide button in PasswordInput -- the two overlap, so a click sometimes lands on the
+ * browser's native toggle instead of ours, which fires no React state change and looks like the
+ * button "randomly doesn't work." Hiding Edge's native icon (and its paired "clear" icon) leaves
+ * only our own button in that spot.
+ */
+input[type="password"]::-ms-reveal,
+input[type="password"]::-ms-clear {
+  display: none;
+}
