@@ -25,16 +25,25 @@ for uploaded video, and Recharts for the stats page.
 
 - **Log a set**: exercise name (autocompleted from your own history plus a built-in catalog of
   common lifts), date, weight (optional — many exercises are bodyweight or don't have a single
-  number, like cardio), sets, reps, perceived exertion (1-5), tags (also autocompleted), and
-  free-text notes, attached to either an uploaded video file or a YouTube link.
+  number, like cardio), sets, reps, perceived exertion (1-5), tags (also autocompleted),
+  free-text notes, and a sent/completed toggle (see [below](#marking-an-attempt-unsuccessful)),
+  attached to either an uploaded video file or a YouTube link.
 - **Progress tracking**: a dashboard with streaks, training-time totals, and a "this week's
   weighted lifts" section; a library with search/filter/sort; and a per-exercise view showing
   every set of the same exercise over time, plus that exercise's personal record (PR).
 - **Personal records**: a `/records` table listing your all-time heaviest logged set for every
-  exercise, sorted heaviest-first, linking straight to the entry that set each record.
+  exercise, sorted heaviest-first, linking straight to the entry that set each record — plus an
+  "Add record" button to backfill a PR directly, with no logged entry or video required — see
+  [Manual records](#manual-records).
 - **Climbing mode**: an optional per-account toggle that switches the whole logging experience —
   entry form, records, library — to gyms and V-scale grades instead of weight — see
   [Climbing mode](#climbing-mode).
+- **Workout plans**: a weekly calendar where the owner or an authenticated visitor can propose an
+  exercise for a given day; the owner can then log it with one click, pre-filled from the plan —
+  see [Workout plans](#workout-plans).
+- **Manual records**: add a PR straight to the records page without logging a full video entry —
+  useful for backfilling a lift from before you started using the app — see
+  [Manual records](#manual-records).
 - **AI form feedback**: an optional Gemini-powered rating and coaching note on your form per
   entry — see [AI feedback](#ai-feedback-gemini).
 - **Comments**: the account owner and anyone with that account's visitor password can leave
@@ -62,7 +71,18 @@ entries on `exerciseName` (case-insensitive) — see [src/lib/stats.ts](src/lib/
 The same `WorkoutEntry` table also holds two nullable climbing-specific columns, `gym` and
 `grade`, populated only when [climbing mode](#climbing-mode) is on for the logging account — there
 was no need for a separate table or entry type, since an account is either logging weights or
-logging climbs, never a per-entry mix.
+logging climbs, never a per-entry mix. It also holds `succeeded` (default `true`) — see
+[Marking an attempt unsuccessful](#marking-an-attempt-unsuccessful).
+
+A **WorkoutPlan** is a separate, much lighter row: a proposed exercise for a specific day, with an
+optional `fulfilledEntryId` pointing at the `WorkoutEntry` that was actually logged for it (see
+[Workout plans](#workout-plans)). Plans and entries are otherwise unrelated — a plan is a proposal,
+not a draft entry, so it doesn't carry video/tags/exertion/favorite at all.
+
+A **ManualRecord** is lighter still: just enough to rank as a PR (exercise/gym+grade, weight or
+grade, a date, optional notes/link) with no video, sets/reps, exertion, or tags at all. It never
+appears in the library or dashboard — it only ever competes to be shown as the best record for its
+exercise or gym on `/records` (see [Manual records](#manual-records)).
 
 ## Setup
 
@@ -326,6 +346,60 @@ Existing weight-based entries aren't touched by the toggle: `gym`/`grade` are nu
 an account can flip the toggle at any time without losing or reinterpreting anything already
 logged — new entries just start using whichever field set is active.
 
+## Workout plans
+
+A weekly calendar at `/plan`, showing the current Sunday–Saturday week as seven day-slots. Both
+the owner and anyone signed in with the account's visitor password can add a plan to any day — a
+proposed exercise with a name, grade or weight, sets/reps, notes, and a reference link (e.g. a
+beta video or article — distinct from the actual proof-of-workout video attached to a logged
+entry). This is deliberately part of the *authenticated* visitor flow only, like
+[comments](#comments) — the fully public, no-login `/visitor` mirror has no plan surface at all,
+and there's no `/visitor/plan` route.
+
+The owner sees the same calendar and can turn any unfulfilled plan into a real log entry with one
+click: "Log this" opens `/new?planId=…`, which pre-fills the exercise name, grade/weight,
+sets/reps, and notes from the plan (everything except gym and video, which are decided at logging
+time, not planning time) and shows the plan's notes/link in a small reference card above the form.
+Saving that entry links the plan to it (`fulfilledEntryId`, set atomically in the same request as
+creating the entry — see `POST /api/entries` in
+[src/app/api/entries/route.ts](src/app/api/entries/route.ts)), so the calendar then shows that day
+as done with a link straight to the entry.
+
+Permissions mirror comments' pattern: a visitor can create plans and delete their own unfulfilled
+ones (to correct a mistake), but not a plan that's already been fulfilled or one the owner added;
+the owner can delete any plan for their own account at any time. Deleting a plan never deletes the
+entry it points to — the two are only loosely linked (`onDelete: SetNull` on `fulfilledEntryId`),
+so removing an entry later just unlinks its plan rather than deleting the plan's history.
+
+## Marking an attempt unsuccessful
+
+Every entry has a "Sent it" (climbing mode) / "Completed successfully" toggle, on by default. Turn
+it off for an attempt that didn't actually land — you missed the lift, or didn't send the
+route/problem. An unsuccessful entry still shows up everywhere a normal entry does (library,
+dashboard, entry detail, comments, AI feedback), badged so it's clearly not a make — the point is
+an instructor or training partner can still review the attempt on video. The one place it's
+excluded is the records calculation: `personalRecords()` and `gymRecords()` (both in
+[src/lib/stats.ts](src/lib/stats.ts) / [src/lib/climbing.ts](src/lib/climbing.ts)) filter out
+unsuccessful entries before ranking, so a failed attempt at a new PR weight or grade can't silently
+become your new record.
+
+## Manual records
+
+The `/records` page has an "Add record" button (owner only) for entering a PR directly — no video,
+no full entry, just the exercise (or gym/grade), the weight (or grade), the date you hit it, and
+optional notes/a reference link. It's meant for backfilling: a lift or send from before you started
+using this app, or one you simply never filmed. This is especially useful on the weightlifting
+side, where a PR is much more likely to predate the app than a climbing send is.
+
+A manual record only ever competes to be the best record shown for its exercise/gym — it's merged
+in alongside logged entries by `personalRecords()`/`gymRecords()` and wins if it's actually the
+heaviest/hardest, same as any entry would. It never appears in the library, dashboard, or timeline
+views, and unlike a logged entry's PR (which links to the entry itself), a manual record's row
+links to its optional reference link instead, or nothing if none was given. Reading manual records
+requires just being signed in (owner or visitor) — they show up in the records table on the public
+`/visitor` mirror the same way logged records do — but creating or deleting one is owner-only,
+unlike comments and plans, since a visitor shouldn't be able to fabricate an account's PR history.
+
 ## Staying on the free tier
 
 - **Uploads are capped at 100MB** in the UI (`MAX_UPLOAD_BYTES` in
@@ -342,7 +416,8 @@ logged — new entries just start using whichever field set is active.
 
 ## Project structure
 
-- `prisma/schema.prisma` — the `WorkoutEntry`, `User`, and `LoginAttempt` models
+- `prisma/schema.prisma` — the `WorkoutEntry`, `User`, `Comment`, `WorkoutPlan`, `ManualRecord`,
+  and `LoginAttempt` models
 - `src/middleware.ts` — session check on every route: unauthenticated → redirect/401,
   visitor role → blocked from mutations and owner-only pages, non-admin → blocked from
   `/api/users*` (Next.js has deprecated the `middleware.ts` convention in favor of
@@ -357,27 +432,38 @@ logged — new entries just start using whichever field set is active.
 - `src/lib/gemini.ts`/`src/lib/ytdlp.ts`/`src/lib/youtube.ts` — AI feedback: Gemini calls,
   YouTube video download, and YouTube URL/ID parsing
 - `src/lib/stats.ts` — streak, training-time, grouping, personal-record, and
-  "last N days" calculations shared by the dashboard, stats, and records pages
+  "last N days" calculations shared by the dashboard, stats, and records pages —
+  `personalRecords()` merges logged entries with [manual records](#manual-records) and skips
+  [unsuccessful](#marking-an-attempt-unsuccessful) entries
+- `src/lib/plans.ts` — the current-week date range and day-grouping helpers behind `/plan`, see
+  [Workout plans](#workout-plans)
 - `src/lib/exercise-catalog.ts` — static seed lists (`COMMON_EXERCISES`, `COMMON_TAGS`) merged
   at the UI layer with an account's own logged history to power autocomplete
-- `src/lib/climbing.ts` — climbing mode: the V-scale grade catalog, per-gym record calculation,
-  and gym+grade stack-grouping, plus the climbing-specific tag catalog — see
-  [Climbing mode](#climbing-mode)
+- `src/lib/climbing.ts` — climbing mode: the V-scale grade catalog, per-gym record calculation
+  (same manual-record-merging and unsuccessful-filtering as `personalRecords()`), and gym+grade
+  stack-grouping, plus the climbing-specific tag catalog — see [Climbing mode](#climbing-mode)
 - `scripts/seed-admin.js` — one-time rollout script, see [Accounts](#accounts)
 - `scripts/reset-password.js` — local-only break-glass password reset, see
   [Resetting a forgotten password](#resetting-a-forgotten-password)
 - `scripts/generate-favicon.js` — local-only tool that rasterizes `src/app/icon.svg` into
   `src/app/favicon.ico`; rerun it by hand if you ever change the icon (not part of the app itself)
-- `src/app/api/*` — entries CRUD (scoped per account), entry comments (owner + visitor can post,
-  owner-only delete), Blob upload token endpoint, login/logout, facets (distinct exercises/tags/
-  gyms for filters and autocomplete), `users/*` (account management and personal toggles like
-  climbing mode, admin-only where noted in-handler), `public/*` (read-only, unauthenticated, see
-  [Public visitor profile](#public-visitor-profile-optional))
-- `src/app/*` — dashboard, `/new`, `/library`, `/exercise` (progression view + PR badge, or the
-  gym+grade group view in climbing mode), `/records` (all-time PR table, or per-gym table in
-  climbing mode), `/entries/[id]` (+ `/edit`, + comments), `/stats`, `/settings` (account + user
-  management + climbing mode toggle), `/visitor/*` (public mirror of the same pages, scoped to
-  the admin's log instead of a session — comments excluded, see [Comments](#comments))
+- `src/app/api/*` — entries CRUD (scoped per account, includes the `succeeded` flag), entry
+  comments (owner + visitor can post, owner-only delete), `plans/*` (owner + visitor can create,
+  finer-grained delete rule enforced in-handler, see [Workout plans](#workout-plans)),
+  `manual-records/*` (any session can read, owner-only create/delete, see
+  [Manual records](#manual-records)), Blob upload token endpoint, login/logout, facets (distinct
+  exercises/tags/gyms for filters and autocomplete), `users/*` (account management and personal
+  toggles like climbing mode, admin-only where noted in-handler), `public/*` (read-only,
+  unauthenticated, see [Public visitor profile](#public-visitor-profile-optional))
+- `src/app/*` — dashboard, `/new` (supports `?planId=…` to pre-fill from a plan, see
+  [Workout plans](#workout-plans)), `/library`, `/plan` (weekly calendar, see
+  [Workout plans](#workout-plans)), `/exercise` (progression view + PR badge, or the gym+grade
+  group view in climbing mode), `/records` (all-time PR table, or per-gym table in climbing mode —
+  both include manual records, plus an owner-only "Add record" dialog, see
+  [Manual records](#manual-records)), `/entries/[id]` (+ `/edit`, + comments), `/stats`,
+  `/settings` (account + user management + climbing mode toggle), `/visitor/*` (public mirror of
+  the same pages, scoped to the admin's log instead of a session — comments and plans excluded,
+  see [Comments](#comments) and [Workout plans](#workout-plans))
 
 ## License
 

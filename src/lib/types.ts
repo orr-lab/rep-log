@@ -17,6 +17,7 @@ export interface WorkoutEntry {
   difficulty: number;
   notes: string | null;
   isFavorite: boolean;
+  succeeded: boolean;
   aiRating: number | null;
   aiFeedback: string | null;
   aiFeedbackAt: string | null;
@@ -38,4 +39,31 @@ export interface EntryComment {
   authorName: string | null;
   postedByRole: string;
   createdAt: string;
+}
+
+export interface ManualRecord {
+  id: string;
+  exerciseName: string;
+  weight: number | null;
+  gym: string | null;
+  grade: number | null;
+  recordedAt: string;
+  notes: string | null;
+  link: string | null;
+  createdAt: string;
+}
+
+export interface WorkoutPlan {
+  id: string;
+  plannedDate: string;
+  exerciseName: string;
+  weight: number | null;
+  grade: number | null;
+  sets: number | null;
+  reps: number | null;
+  notes: string | null;
+  link: string | null;
+  createdByRole: string;
+  createdAt: string;
+  fulfilledEntryId: string | null;
 }

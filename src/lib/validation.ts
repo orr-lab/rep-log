@@ -16,6 +16,10 @@ export const entryInputSchema = z.object({
   difficulty: z.number().int().min(1).max(5),
   notes: z.string().max(5000).optional().nullable(),
   isFavorite: z.boolean().default(false),
+  succeeded: z.boolean().default(true),
+  // Set when this entry is created by fulfilling a planned workout (see planInputSchema below) --
+  // the entries route links the plan to the new entry atomically in the same request.
+  fulfillsPlanId: z.string().trim().optional().nullable(),
 });
 
 export type EntryInput = z.infer<typeof entryInputSchema>;
@@ -79,4 +83,25 @@ export const commentInputSchema = z.object({
 
 export const setClimbingModeSchema = z.object({
   enabled: z.boolean(),
+});
+
+export const manualRecordInputSchema = z.object({
+  exerciseName: z.string().trim().min(1, "Exercise name is required").max(200),
+  weight: z.number().positive().optional().nullable(),
+  gym: z.string().trim().max(120).optional().nullable(),
+  grade: z.number().int().min(0).max(17).optional().nullable(),
+  recordedAt: z.string().min(1, "Date is required"),
+  notes: z.string().max(2000).optional().nullable(),
+  link: z.string().trim().max(500).optional().nullable(),
+});
+
+export const planInputSchema = z.object({
+  plannedDate: z.string().min(1, "Date is required"),
+  exerciseName: z.string().trim().min(1, "Exercise name is required").max(200),
+  weight: z.number().positive().optional().nullable(),
+  grade: z.number().int().min(0).max(17).optional().nullable(),
+  sets: z.number().int().positive().optional().nullable(),
+  reps: z.number().int().positive().optional().nullable(),
+  notes: z.string().max(2000).optional().nullable(),
+  link: z.string().trim().max(500).optional().nullable(),
 });

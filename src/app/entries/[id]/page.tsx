@@ -78,6 +78,11 @@ export default async function EntryDetailPage({
 
       <div className="flex flex-wrap items-center gap-2">
         <Badge variant="outline">Exertion {entry.difficulty}/5</Badge>
+        {!entry.succeeded && (
+          <Badge variant="outline" className="border-destructive/40 text-destructive">
+            {isClimb ? "Didn't send" : "Missed"}
+          </Badge>
+        )}
         {entry.tags.map((tag) => (
           <Badge key={tag} variant="secondary">
             {tag}

@@ -45,7 +45,21 @@ export default async function ExercisePage({
   const oldest = entries[0];
   const newest = entries[entries.length - 1];
   const allTags = Array.from(new Set(entries.flatMap((e) => e.tags)));
-  const pr = isClimbView ? null : personalRecords(entries)[0];
+
+  // Manual records (backfilled PRs with no logged entry, see /records) can beat every entry here
+  // -- fetch the ones for this exercise so the PR badge reflects the true best, not just the best
+  // among the entries that happen to have video.
+  const manualRows = isClimbView
+    ? []
+    : await prisma.manualRecord.findMany({
+        where: { userId: session.userId, exerciseName: { equals: name, mode: "insensitive" } },
+      });
+  const manualRecords = manualRows.map((r) => ({
+    ...r,
+    recordedAt: r.recordedAt.toISOString(),
+    createdAt: r.createdAt.toISOString(),
+  }));
+  const pr = isClimbView ? null : personalRecords(entries, manualRecords)[0];
   const title = isClimbView ? `${gym} — ${formatGrade(grade as number)}` : (name as string);
   const unit = isClimbView ? "send" : "set";
 
@@ -78,10 +92,28 @@ export default async function ExercisePage({
               day: "numeric",
               year: "numeric",
             })}
-            {" — "}
-            <Link href={`/entries/${pr.entryId}`} className="text-primary hover:underline">
-              view that entry
-            </Link>
+            {pr.source === "entry" ? (
+              <>
+                {" — "}
+                <Link href={`/entries/${pr.entryId}`} className="text-primary hover:underline">
+                  view that entry
+                </Link>
+              </>
+            ) : pr.link ? (
+              <>
+                {" — "}
+                <a
+                  href={pr.link}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary hover:underline"
+                >
+                  view reference link
+                </a>
+              </>
+            ) : (
+              " (added directly, no entry)"
+            )}
           </p>
         )}
       </div>

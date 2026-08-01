@@ -41,32 +41,50 @@ function formatDuration(totalSeconds: number) {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
+export interface PlanPrefill {
+  id: string;
+  exerciseName: string;
+  weight: number | null;
+  grade: number | null;
+  sets: number | null;
+  reps: number | null;
+  notes: string | null;
+}
+
 export function WorkoutEntryForm({
   mode,
   initialData,
   userId,
   uploadsEnabled,
   climbingMode,
+  fromPlan,
 }: {
   mode: "create" | "edit";
   initialData?: WorkoutEntry;
   userId: string;
   uploadsEnabled: boolean;
   climbingMode: boolean;
+  /** Pre-fills the form from a planned workout (see /plan) and links the saved entry back to it. */
+  fromPlan?: PlanPrefill;
 }) {
   const router = useRouter();
 
-  const [exerciseName, setExerciseName] = useState(initialData?.exerciseName ?? "");
-  const [weight, setWeight] = useState(initialData?.weight?.toString() ?? "");
+  const [exerciseName, setExerciseName] = useState(
+    initialData?.exerciseName ?? fromPlan?.exerciseName ?? ""
+  );
+  const [weight, setWeight] = useState(
+    (initialData?.weight ?? fromPlan?.weight)?.toString() ?? ""
+  );
   const [gym, setGym] = useState(initialData?.gym ?? "");
-  const [grade, setGrade] = useState(initialData?.grade?.toString() ?? "");
+  const [grade, setGrade] = useState((initialData?.grade ?? fromPlan?.grade)?.toString() ?? "");
   const [recordedAt, setRecordedAt] = useState(toDateInputValue(initialData?.recordedAt));
   const [tags, setTags] = useState<string[]>(initialData?.tags ?? []);
   const [difficulty, setDifficulty] = useState(initialData?.difficulty ?? 3);
-  const [sets, setSets] = useState(initialData?.sets?.toString() ?? "");
-  const [reps, setReps] = useState(initialData?.reps?.toString() ?? "");
-  const [notes, setNotes] = useState(initialData?.notes ?? "");
+  const [sets, setSets] = useState((initialData?.sets ?? fromPlan?.sets)?.toString() ?? "");
+  const [reps, setReps] = useState((initialData?.reps ?? fromPlan?.reps)?.toString() ?? "");
+  const [notes, setNotes] = useState(initialData?.notes ?? fromPlan?.notes ?? "");
   const [isFavorite, setIsFavorite] = useState(initialData?.isFavorite ?? false);
+  const [succeeded, setSucceeded] = useState(initialData?.succeeded ?? true);
 
   const [videoSource, setVideoSource] = useState<VideoSource>(
     initialData?.videoSource ?? (uploadsEnabled ? "UPLOAD" : "YOUTUBE")
@@ -259,6 +277,8 @@ export function WorkoutEntryForm({
       difficulty,
       notes: notes.trim() || null,
       isFavorite,
+      succeeded,
+      fulfillsPlanId: mode === "create" ? (fromPlan?.id ?? null) : undefined,
     };
 
     try {
@@ -560,6 +580,18 @@ export function WorkoutEntryForm({
           onChange={(e) => setNotes(e.target.value)}
           placeholder="What went well? What needs work next time?"
         />
+      </section>
+
+      <section className="flex items-center justify-between rounded-lg border p-4">
+        <div>
+          <Label htmlFor="succeeded">{climbingMode ? "Sent it" : "Completed successfully"}</Label>
+          <p className="text-sm text-muted-foreground">
+            {climbingMode
+              ? "Turn off if you didn't send — it'll still show up in your library, just not in records."
+              : "Turn off if you missed the lift — it'll still show up in your library, just not in records."}
+          </p>
+        </div>
+        <Switch id="succeeded" checked={succeeded} onCheckedChange={setSucceeded} />
       </section>
 
       <section className="flex items-center justify-between rounded-lg border p-4">

@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
-  const data = parsed.data;
+  const { fulfillsPlanId, ...data } = parsed.data;
 
   if (data.videoSource === "UPLOAD" && !(await isVideoUploadEnabled())) {
     return NextResponse.json(
@@ -59,13 +59,35 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  if (fulfillsPlanId) {
+    const plan = await prisma.workoutPlan.findUnique({
+      where: { id: fulfillsPlanId, userId: session.userId },
+      select: { id: true, fulfilledEntryId: true },
+    });
+    if (!plan) {
+      return NextResponse.json({ error: "That plan no longer exists." }, { status: 404 });
+    }
+    if (plan.fulfilledEntryId) {
+      return NextResponse.json({ error: "That plan has already been logged." }, { status: 409 });
+    }
+  }
+
   try {
-    const entry = await prisma.workoutEntry.create({
-      data: {
-        ...data,
-        recordedAt: new Date(data.recordedAt),
-        userId: session.userId,
-      },
+    const entry = await prisma.$transaction(async (tx) => {
+      const created = await tx.workoutEntry.create({
+        data: {
+          ...data,
+          recordedAt: new Date(data.recordedAt),
+          userId: session.userId,
+        },
+      });
+      if (fulfillsPlanId) {
+        await tx.workoutPlan.update({
+          where: { id: fulfillsPlanId, userId: session.userId },
+          data: { fulfilledEntryId: created.id },
+        });
+      }
+      return created;
     });
     return NextResponse.json(entry, { status: 201 });
   } catch (err) {

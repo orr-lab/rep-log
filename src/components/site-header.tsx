@@ -16,6 +16,10 @@ const NAV_LINKS = [
   { href: "/records", label: "Records" },
 ];
 
+// Authenticated-only (owner + visitor) -- there's no public /visitor/plan mirror, since planning
+// is part of the authenticated visitor-password flow, not the fully public no-login surface.
+const AUTHENTICATED_ONLY_NAV_LINKS = [{ href: "/plan", label: "Plan" }];
+
 export function SiteHeader({ role }: { role: Role | null }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -33,7 +37,7 @@ export function SiteHeader({ role }: { role: Role | null }) {
   const homeHref = isPublicView ? "/visitor" : "/";
   const navLinks = isPublicView
     ? NAV_LINKS.map((link) => ({ ...link, href: `/visitor${link.href === "/" ? "" : link.href}` }))
-    : NAV_LINKS;
+    : [...NAV_LINKS, ...AUTHENTICATED_ONLY_NAV_LINKS];
 
   return (
     <header className="sticky top-0 z-40 border-b border-border/60 bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/70">

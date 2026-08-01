@@ -1,0 +1,145 @@
+"use client";
+
+import Link from "next/link";
+import { useState } from "react";
+import { toast } from "sonner";
+import { CheckCircle2, ExternalLink, Loader2, Plus, Trash2 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { buttonVariants } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { formatGrade } from "@/lib/climbing";
+import type { Role } from "@/lib/auth";
+import type { WorkoutPlan } from "@/lib/types";
+
+export function PlanCard({
+  plan,
+  role,
+  onDeleted,
+}: {
+  plan: WorkoutPlan;
+  role: Role | null;
+  onDeleted: (id: string) => void;
+}) {
+  const [deleting, setDeleting] = useState(false);
+  const isClimb = plan.grade != null;
+  const isFulfilled = plan.fulfilledEntryId != null;
+  const canDelete =
+    role === "owner" || (role === "visitor" && plan.createdByRole === "visitor" && !isFulfilled);
+
+  async function handleDelete() {
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/plans/${plan.id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(typeof data?.error === "string" ? data.error : "Couldn't delete that plan.");
+      }
+      onDeleted(plan.id);
+      toast.success("Plan removed");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Something went wrong.");
+      setDeleting(false);
+    }
+  }
+
+  return (
+    <div className="space-y-2 rounded-lg border border-border/70 bg-card p-3">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium leading-tight">{plan.exerciseName}</p>
+          <p className="truncate text-xs text-muted-foreground">
+            {isClimb
+              ? formatGrade(plan.grade as number)
+              : plan.weight != null
+                ? `${plan.weight} lb/kg`
+                : "Bodyweight"}
+            {plan.sets != null && plan.reps != null ? ` · ${plan.sets}x${plan.reps}` : ""}
+          </p>
+        </div>
+        {isFulfilled ? (
+          <Badge variant="secondary" className="shrink-0 gap-1">
+            <CheckCircle2 className="size-3.5" /> Done
+          </Badge>
+        ) : (
+          <Badge variant="outline" className="shrink-0">
+            {plan.createdByRole === "visitor" ? "Visitor" : "Planned"}
+          </Badge>
+        )}
+      </div>
+
+      {plan.notes && <p className="line-clamp-2 text-xs text-muted-foreground">{plan.notes}</p>}
+
+      {plan.link && (
+        <a
+          href={plan.link}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+        >
+          <ExternalLink className="size-3" /> Reference link
+        </a>
+      )}
+
+      <div className="flex items-center justify-between gap-2 pt-1">
+        {isFulfilled ? (
+          <Link
+            href={`/entries/${plan.fulfilledEntryId}`}
+            className={buttonVariants({ variant: "ghost", size: "sm" })}
+          >
+            View entry
+          </Link>
+        ) : role === "owner" ? (
+          <Link
+            href={`/new?planId=${plan.id}`}
+            className={buttonVariants({ variant: "secondary", size: "sm" })}
+          >
+            <Plus className="size-3.5" /> Log this
+          </Link>
+        ) : (
+          <span />
+        )}
+
+        {canDelete && (
+          <AlertDialog>
+            <AlertDialogTrigger
+              aria-label="Delete plan"
+              className={buttonVariants({
+                variant: "ghost",
+                size: "icon-sm",
+                className: "text-destructive hover:text-destructive",
+              })}
+            >
+              {deleting ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Remove this plan?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This only removes the plan, not any logged entry it points to. This can&apos;t be
+                  undone.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={handleDelete} disabled={deleting}>
+                  {deleting && <Loader2 className="size-4 animate-spin" />}
+                  Remove
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        )}
+      </div>
+    </div>
+  );
+}

@@ -52,6 +52,11 @@ export function EntryCard({
             {count} {isClimb ? "climbs" : "sets"}
           </Badge>
         )}
+        {!entry.succeeded && (
+          <Badge variant="outline" className="absolute left-2 top-2 bg-card shadow-sm">
+            {isClimb ? "Didn't send" : "Missed"}
+          </Badge>
+        )}
         <div className="space-y-2 p-3">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">

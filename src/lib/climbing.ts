@@ -1,4 +1,4 @@
-import type { WorkoutEntry } from "@/lib/types";
+import type { WorkoutEntry, ManualRecord } from "@/lib/types";
 import { gymKey } from "@/lib/types";
 
 export const MAX_GRADE = 17;
@@ -41,30 +41,67 @@ export interface GymRecord {
   gym: string;
   bestGrade: number;
   timesAtBestGrade: number;
-  oldestEntryId: string;
+  /** "entry" if logged sends hold this record, "manual" if a directly-entered ManualRecord (see
+   *  /records) is the only one at the best grade. */
+  source: "entry" | "manual";
+  oldestEntryId: string | null;
+  oldestManualRecordId: string | null;
   oldestRecordedAt: string;
+  oldestLink: string | null;
 }
 
-/** Groups climbing entries by gym, and for each gym finds the hardest grade climbed there, how
- *  many logged sends are at that grade, and the earliest (oldest) one -- the send that first
- *  reached that grade at that gym. Entries missing a gym or grade are excluded; there's nothing
- *  to rank them by. */
-export function gymRecords(entries: WorkoutEntry[]): GymRecord[] {
-  const byGym = new Map<string, { gym: string; entries: WorkoutEntry[] }>();
+type GymCandidate = {
+  gym: string;
+  grade: number;
+  recordedAt: string;
+  source: "entry" | "manual";
+  id: string;
+  link: string | null;
+};
 
+/** Groups climbing entries and manual records by gym, and for each gym finds the hardest grade
+ *  climbed there, how many sends are at that grade, and the earliest (oldest) one -- the send
+ *  that first reached that grade at that gym. Entries/records missing a gym or grade are
+ *  excluded; there's nothing to rank them by. Entries logged as unsuccessful (didn't send) are
+ *  also excluded -- a failed attempt at a new PR grade shouldn't silently become the new record. */
+export function gymRecords(entries: WorkoutEntry[], manualRecords: ManualRecord[] = []): GymRecord[] {
+  const candidates: GymCandidate[] = [];
   for (const e of entries) {
-    if (e.gym == null || e.grade == null) continue;
-    const key = gymKey(e);
+    if (e.gym == null || e.grade == null || !e.succeeded) continue;
+    candidates.push({
+      gym: e.gym,
+      grade: e.grade,
+      recordedAt: e.recordedAt,
+      source: "entry",
+      id: e.id,
+      link: null,
+    });
+  }
+  for (const m of manualRecords) {
+    if (m.gym == null || m.grade == null) continue;
+    candidates.push({
+      gym: m.gym,
+      grade: m.grade,
+      recordedAt: m.recordedAt,
+      source: "manual",
+      id: m.id,
+      link: m.link,
+    });
+  }
+
+  const byGym = new Map<string, { gym: string; candidates: GymCandidate[] }>();
+  for (const c of candidates) {
+    const key = gymKey({ gym: c.gym });
     const existing = byGym.get(key);
-    if (existing) existing.entries.push(e);
-    else byGym.set(key, { gym: e.gym, entries: [e] });
+    if (existing) existing.candidates.push(c);
+    else byGym.set(key, { gym: c.gym, candidates: [c] });
   }
 
   const records: GymRecord[] = [];
-  for (const { gym, entries: gymEntries } of byGym.values()) {
-    const bestGrade = Math.max(...gymEntries.map((e) => e.grade as number));
-    const atBestGrade = gymEntries
-      .filter((e) => e.grade === bestGrade)
+  for (const { gym, candidates: gymCandidates } of byGym.values()) {
+    const bestGrade = Math.max(...gymCandidates.map((c) => c.grade));
+    const atBestGrade = gymCandidates
+      .filter((c) => c.grade === bestGrade)
       .sort((a, b) => new Date(a.recordedAt).getTime() - new Date(b.recordedAt).getTime());
     const oldest = atBestGrade[0];
 
@@ -72,8 +109,11 @@ export function gymRecords(entries: WorkoutEntry[]): GymRecord[] {
       gym,
       bestGrade,
       timesAtBestGrade: atBestGrade.length,
-      oldestEntryId: oldest.id,
+      source: oldest.source,
+      oldestEntryId: oldest.source === "entry" ? oldest.id : null,
+      oldestManualRecordId: oldest.source === "manual" ? oldest.id : null,
       oldestRecordedAt: oldest.recordedAt,
+      oldestLink: oldest.link,
     });
   }
 

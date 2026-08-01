@@ -27,6 +27,8 @@ model User {
   climbingMode          Boolean        @default(false)
   createdAt             DateTime       @default(now())
   entries               WorkoutEntry[]
+  plans                 WorkoutPlan[]
+  manualRecords         ManualRecord[]
 }
 
 model WorkoutEntry {
@@ -50,6 +52,12 @@ model WorkoutEntry {
   difficulty   Int
   notes        String?
   isFavorite   Boolean     @default(false)
+  // Whether this attempt actually succeeded (sent the route/problem, completed the lift) --
+  // defaults to true so existing entries keep counting toward records unchanged. When false, the
+  // entry still shows up everywhere (library, dashboard, entry detail, comments, AI feedback --
+  // an instructor can still review it) but personalRecords()/gymRecords() exclude it, so a failed
+  // attempt at a new PR weight/grade doesn't silently become your new record.
+  succeeded    Boolean     @default(true)
   aiRating     Int?
   aiFeedback   String?
   aiFeedbackAt DateTime?
@@ -59,11 +67,65 @@ model WorkoutEntry {
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  comments Comment[]
+  comments     Comment[]
+  fulfilledPlan WorkoutPlan?
 
   @@index([exerciseName])
   @@index([gym])
   @@index([recordedAt])
+  @@index([userId])
+}
+
+// A proposed exercise for a specific day, created by either the owner (self-planning) or an
+// authenticated visitor (the "any non-public visitor can add a plan" feature) -- never by the
+// fully public, no-login /visitor mirror. No gym field, deliberately: gym is decided at logging
+// time, not planning time. Once the owner logs the matching WorkoutEntry, fulfilledEntryId links
+// to it and the plan shows as done in the calendar; deleting that entry later just unlinks the
+// plan (onDelete: SetNull) rather than deleting the plan's history.
+model WorkoutPlan {
+  id            String    @id @default(cuid())
+  plannedDate   DateTime
+  exerciseName  String
+  weight        Float?
+  grade         Int?
+  sets          Int?
+  reps          Int?
+  notes         String?
+  link          String?
+  createdByRole String
+  createdAt     DateTime  @default(now())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  fulfilledEntryId String?      @unique
+  fulfilledEntry   WorkoutEntry? @relation(fields: [fulfilledEntryId], references: [id], onDelete: SetNull)
+
+  @@index([userId, plannedDate])
+}
+
+// A record entered directly on the records page, without logging a full video entry -- useful for
+// backfilling a PR that predates this app (e.g. a lift from years ago with no video) or one you
+// just don't want to film. Same weight-or-(gym+grade) split as WorkoutEntry. It only ever competes
+// to be shown as the best record for its exercise/gym in personalRecords()/gymRecords() -- it
+// never appears in the library, dashboard, or timeline views, since there's no video or session
+// data behind it. Owner-only to create/delete, like other account-level facts (climbingMode,
+// passwords) -- unlike comments/plans, a fabricated PR isn't something a visitor should be able to
+// add.
+model ManualRecord {
+  id           String   @id @default(cuid())
+  exerciseName String
+  weight       Float?
+  gym          String?
+  grade        Int?
+  recordedAt   DateTime
+  notes        String?
+  link         String?
+  createdAt    DateTime @default(now())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@index([userId])
 }
 

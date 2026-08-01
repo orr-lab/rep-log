@@ -1,4 +1,4 @@
-import type { WorkoutEntry } from "@/lib/types";
+import type { WorkoutEntry, ManualRecord } from "@/lib/types";
 import { exerciseKey } from "@/lib/types";
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -173,28 +173,83 @@ export interface PersonalRecord {
   exerciseName: string;
   weight: number;
   recordedAt: string;
-  entryId: string;
+  /** "entry" if a logged WorkoutEntry holds this record, "manual" if a directly-entered
+   *  ManualRecord (see /records) currently beats every logged entry for this exercise. */
+  source: "entry" | "manual";
+  entryId: string | null;
+  manualRecordId: string | null;
+  link: string | null;
 }
 
-/** Heaviest logged weight per exercise. Bodyweight-only exercises (no entry has a weight) don't
- *  produce a record -- there's nothing to rank them by. */
-export function personalRecords(entries: WorkoutEntry[]): PersonalRecord[] {
-  const groups = groupByExercise(entries);
-  const records: PersonalRecord[] = [];
+/** Heaviest weight per exercise, drawn from logged entries and manually-entered records
+ *  together -- a manual record (backfilled PR with no video) can win the same way a logged entry
+ *  can. Bodyweight-only exercises (no candidate has a weight) don't produce a record -- there's
+ *  nothing to rank them by. Entries logged as unsuccessful (missed the lift) are excluded -- a
+ *  failed attempt at a new PR weight shouldn't silently become the new record, even though it
+ *  still shows up everywhere else in the app. Ties keep the earliest-achieved candidate. */
+export function personalRecords(
+  entries: WorkoutEntry[],
+  manualRecords: ManualRecord[] = []
+): PersonalRecord[] {
+  type Candidate = {
+    exerciseName: string;
+    weight: number;
+    recordedAt: string;
+    source: "entry" | "manual";
+    id: string;
+    link: string | null;
+  };
 
-  for (const group of groups.values()) {
-    let best: WorkoutEntry | null = null;
-    for (const e of group) {
-      if (e.weight != null && (best == null || e.weight > (best.weight as number))) {
-        best = e;
-      }
+  const candidates: Candidate[] = [];
+  for (const e of entries) {
+    if (e.succeeded && e.weight != null) {
+      candidates.push({
+        exerciseName: e.exerciseName,
+        weight: e.weight,
+        recordedAt: e.recordedAt,
+        source: "entry",
+        id: e.id,
+        link: null,
+      });
     }
-    if (best && best.weight != null) {
+  }
+  for (const m of manualRecords) {
+    if (m.weight != null) {
+      candidates.push({
+        exerciseName: m.exerciseName,
+        weight: m.weight,
+        recordedAt: m.recordedAt,
+        source: "manual",
+        id: m.id,
+        link: m.link,
+      });
+    }
+  }
+
+  const groups = new Map<string, Candidate[]>();
+  for (const c of candidates) {
+    const key = exerciseKey({ exerciseName: c.exerciseName });
+    const existing = groups.get(key);
+    if (existing) existing.push(c);
+    else groups.set(key, [c]);
+  }
+
+  const records: PersonalRecord[] = [];
+  for (const group of groups.values()) {
+    group.sort((a, b) => new Date(a.recordedAt).getTime() - new Date(b.recordedAt).getTime());
+    let best: Candidate | null = null;
+    for (const c of group) {
+      if (best == null || c.weight > best.weight) best = c;
+    }
+    if (best) {
       records.push({
         exerciseName: best.exerciseName,
         weight: best.weight,
         recordedAt: best.recordedAt,
-        entryId: best.id,
+        source: best.source,
+        entryId: best.source === "entry" ? best.id : null,
+        manualRecordId: best.source === "manual" ? best.id : null,
+        link: best.link,
       });
     }
   }

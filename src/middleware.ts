@@ -36,10 +36,13 @@ const PUBLIC_PATH_PATTERNS = [
   /^\/api\/public\/facets$/,
 ];
 
-// Visitors are otherwise blocked from every mutating API call (see the role check below) — this
-// is the one deliberate exception: a visitor-password holder may leave a comment on an entry.
-// Deleting a comment stays owner-only (not listed here), enforced by this same role check.
-const VISITOR_ALLOWED_MUTATION_PATTERNS = [/^\/api\/entries\/[^/]+\/comments$/];
+// Visitors are otherwise blocked from every mutating API call (see the role check below) — these
+// are the deliberate exceptions: a visitor-password holder may leave a comment on an entry, and
+// may create or delete their own workout plans. Deleting a comment, and the finer-grained "only
+// your own unfulfilled plans" rule for plan deletion, stay enforced inside the route handlers
+// themselves (middleware only knows path + method, not row ownership).
+const VISITOR_ALLOWED_POST_PATTERNS = [/^\/api\/entries\/[^/]+\/comments$/, /^\/api\/plans$/];
+const VISITOR_ALLOWED_DELETE_PATTERNS = [/^\/api\/plans\/[^/]+$/];
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -71,8 +74,10 @@ export async function middleware(request: NextRequest) {
   const isMutatingApiCall = pathname.startsWith("/api/") && request.method !== "GET";
   const isOwnerOnlyPage = OWNER_ONLY_PAGE_PATTERNS.some((pattern) => pattern.test(pathname));
   const isVisitorAllowedMutation =
-    request.method === "POST" &&
-    VISITOR_ALLOWED_MUTATION_PATTERNS.some((pattern) => pattern.test(pathname));
+    (request.method === "POST" &&
+      VISITOR_ALLOWED_POST_PATTERNS.some((pattern) => pattern.test(pathname))) ||
+    (request.method === "DELETE" &&
+      VISITOR_ALLOWED_DELETE_PATTERNS.some((pattern) => pattern.test(pathname)));
 
   if (role !== "owner" && (isMutatingApiCall || isOwnerOnlyPage) && !isVisitorAllowedMutation) {
     if (pathname.startsWith("/api/")) {
