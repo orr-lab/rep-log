@@ -3,6 +3,8 @@ import { z } from "zod";
 export const entryInputSchema = z.object({
   exerciseName: z.string().trim().min(1, "Exercise name is required").max(200),
   weight: z.number().positive().optional().nullable(),
+  gym: z.string().trim().max(120).optional().nullable(),
+  grade: z.number().int().min(0).max(17).optional().nullable(),
   recordedAt: z.string().min(1, "Date is required"),
   videoSource: z.enum(["UPLOAD", "YOUTUBE"]),
   videoUrl: z.string().trim().min(1, "A video source is required"),
@@ -73,4 +75,8 @@ export const setVideoUploadsSchema = z.object({
 export const commentInputSchema = z.object({
   body: z.string().trim().min(1, "Comment can't be empty").max(2000),
   authorName: z.string().trim().max(60).optional().nullable(),
+});
+
+export const setClimbingModeSchema = z.object({
+  enabled: z.boolean(),
 });

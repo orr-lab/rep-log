@@ -8,6 +8,7 @@ import { VisitorPasswordForm } from "@/components/settings/visitor-password-form
 import { UserManagementPanel } from "@/components/settings/user-management-panel";
 import { PublicProfileToggle } from "@/components/settings/public-profile-toggle";
 import { VideoUploadToggle } from "@/components/settings/video-upload-toggle";
+import { ClimbingModeToggle } from "@/components/settings/climbing-mode-toggle";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +24,7 @@ export default async function SettingsPage() {
       visitorPasswordHash: true,
       publicProfileEnabled: true,
       videoUploadsEnabled: true,
+      climbingMode: true,
     },
   });
   if (!me) redirect("/login");
@@ -57,6 +59,11 @@ export default async function SettingsPage() {
           Give someone read-only access to just your log with a separate password.
         </p>
         <VisitorPasswordForm hasVisitorPassword={me.visitorPasswordHash !== null} />
+      </section>
+
+      <section className="space-y-4">
+        <h2 className="text-lg font-semibold">Training style</h2>
+        <ClimbingModeToggle initialEnabled={me.climbingMode} />
       </section>
 
       {session.isAdmin && (

@@ -15,12 +15,24 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { EntryCard } from "@/components/entry-card";
 import { EmptyState } from "@/components/empty-state";
-import { exerciseKey, type WorkoutEntry } from "@/lib/types";
+import { exerciseKey, gymKey, type WorkoutEntry } from "@/lib/types";
 
 function groupByExerciseForDisplay(entries: WorkoutEntry[]) {
   const groups = new Map<string, { representative: WorkoutEntry; count: number }>();
   for (const e of entries) {
     const key = exerciseKey(e);
+    const existing = groups.get(key);
+    if (existing) existing.count += 1;
+    else groups.set(key, { representative: e, count: 1 });
+  }
+  return Array.from(groups.values());
+}
+
+function groupByGymGradeForDisplay(entries: WorkoutEntry[]) {
+  const groups = new Map<string, { representative: WorkoutEntry; count: number }>();
+  for (const e of entries) {
+    if (e.gym == null || e.grade == null) continue;
+    const key = `${gymKey(e)}::${e.grade}`;
     const existing = groups.get(key);
     if (existing) existing.count += 1;
     else groups.set(key, { representative: e, count: 1 });
@@ -36,16 +48,26 @@ const SORT_OPTIONS = [
   { value: "exercise:asc", label: "Exercise name (A–Z)" },
 ];
 
+const CLIMBING_SORT_OPTIONS = [
+  { value: "grade:desc", label: "Hardest grade first" },
+  { value: "grade:asc", label: "Easiest grade first" },
+  { value: "date:desc", label: "Newest first" },
+  { value: "date:asc", label: "Oldest first" },
+];
+
 export function PublicLibraryClient() {
   const [entries, setEntries] = useState<WorkoutEntry[] | null>(null);
-  const [facets, setFacets] = useState<{ exercises: string[]; tags: string[] }>({
+  const [facets, setFacets] = useState<{ exercises: string[]; tags: string[]; gyms: string[] }>({
     exercises: [],
     tags: [],
+    gyms: [],
   });
+  const [climbingMode, setClimbingMode] = useState<boolean | null>(null);
 
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [tag, setTag] = useState("all");
+  const [gymFilter, setGymFilter] = useState("all");
   const [difficulty, setDifficulty] = useState("all");
   const [favorite, setFavorite] = useState(false);
   const [sortValue, setSortValue] = useState("date:desc");
@@ -54,7 +76,7 @@ export function PublicLibraryClient() {
   // Reset the (now stale) results the moment any filter changes, so the loading skeleton shows
   // right away instead of the old list lingering until the new fetch resolves. Done here, during
   // render, rather than in the effect below -- see https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes.
-  const queryKey = [debouncedSearch, tag, difficulty, favorite, sort, order].join("|");
+  const queryKey = [debouncedSearch, tag, gymFilter, difficulty, favorite, sort, order].join("|");
   const [lastQueryKey, setLastQueryKey] = useState(queryKey);
   if (queryKey !== lastQueryKey) {
     setLastQueryKey(queryKey);
@@ -64,9 +86,20 @@ export function PublicLibraryClient() {
   useEffect(() => {
     fetch("/api/public/facets")
       .then((r) => r.json())
-      .then(setFacets)
+      .then((data) => {
+        setFacets(data);
+        setClimbingMode(Boolean(data.climbingMode));
+      })
       .catch(() => {});
   }, []);
+
+  // Computed during render (same pattern as queryKey above), not in an effect, so this only
+  // fires the one time climbingMode resolves from null to a value.
+  const [lastClimbingMode, setLastClimbingMode] = useState<boolean | null>(null);
+  if (climbingMode !== lastClimbingMode) {
+    setLastClimbingMode(climbingMode);
+    if (climbingMode) setSortValue("grade:desc");
+  }
 
   useEffect(() => {
     const id = setTimeout(() => setDebouncedSearch(search), 300);
@@ -77,6 +110,7 @@ export function PublicLibraryClient() {
     const params = new URLSearchParams();
     if (debouncedSearch) params.set("q", debouncedSearch);
     if (tag !== "all") params.set("tag", tag);
+    if (gymFilter !== "all") params.set("gym", gymFilter);
     if (difficulty !== "all") params.set("difficulty", difficulty);
     if (favorite) params.set("favorite", "true");
     params.set("sort", sort);
@@ -94,15 +128,20 @@ export function PublicLibraryClient() {
     return () => {
       cancelled = true;
     };
-  }, [debouncedSearch, tag, difficulty, favorite, sort, order]);
+  }, [debouncedSearch, tag, gymFilter, difficulty, favorite, sort, order]);
 
-  const groups = useMemo(() => (entries ? groupByExerciseForDisplay(entries) : []), [entries]);
+  const groups = useMemo(() => {
+    if (!entries) return [];
+    return climbingMode ? groupByGymGradeForDisplay(entries) : groupByExerciseForDisplay(entries);
+  }, [entries, climbingMode]);
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 px-4 py-8">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Library</h1>
-        <p className="text-muted-foreground">Every set logged here, in one place.</p>
+        <p className="text-muted-foreground">
+          Every {climbingMode ? "climb" : "set"} logged here, in one place.
+        </p>
       </div>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
@@ -111,29 +150,45 @@ export function PublicLibraryClient() {
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search exercise…"
+            placeholder={climbingMode ? "Search route / problem…" : "Search exercise…"}
             className="pl-8"
           />
         </div>
 
-        <Select
-          value="all"
-          onValueChange={(v) => {
-            if (v && v !== "all") setSearch(v);
-          }}
-        >
-          <SelectTrigger className="w-full sm:w-44">
-            <SelectValue placeholder="Jump to exercise" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Jump to exercise…</SelectItem>
-            {facets.exercises.map((ex) => (
-              <SelectItem key={ex} value={ex}>
-                {ex}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {climbingMode ? (
+          <Select value={gymFilter} onValueChange={(v) => v && setGymFilter(v)}>
+            <SelectTrigger className="w-full sm:w-44">
+              <SelectValue placeholder="Jump to gym" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Jump to gym…</SelectItem>
+              {facets.gyms.map((g) => (
+                <SelectItem key={g} value={g}>
+                  {g}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : (
+          <Select
+            value="all"
+            onValueChange={(v) => {
+              if (v && v !== "all") setSearch(v);
+            }}
+          >
+            <SelectTrigger className="w-full sm:w-44">
+              <SelectValue placeholder="Jump to exercise" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Jump to exercise…</SelectItem>
+              {facets.exercises.map((ex) => (
+                <SelectItem key={ex} value={ex}>
+                  {ex}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
 
         <Select value={tag} onValueChange={(v) => v && setTag(v)}>
           <SelectTrigger className="w-full sm:w-40">
@@ -168,7 +223,7 @@ export function PublicLibraryClient() {
             <SelectValue placeholder="Sort" />
           </SelectTrigger>
           <SelectContent>
-            {SORT_OPTIONS.map((o) => (
+            {(climbingMode ? CLIMBING_SORT_OPTIONS : SORT_OPTIONS).map((o) => (
               <SelectItem key={o.value} value={o.value}>
                 {o.label}
               </SelectItem>
@@ -206,7 +261,9 @@ export function PublicLibraryClient() {
               basePath="/visitor"
               href={
                 count > 1
-                  ? `/visitor/exercise?name=${encodeURIComponent(representative.exerciseName)}`
+                  ? climbingMode
+                    ? `/visitor/exercise?gym=${encodeURIComponent(representative.gym as string)}&grade=${representative.grade}`
+                    : `/visitor/exercise?name=${encodeURIComponent(representative.exerciseName)}`
                   : undefined
               }
             />

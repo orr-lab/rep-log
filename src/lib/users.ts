@@ -181,3 +181,16 @@ export async function isVideoUploadEnabled(): Promise<boolean> {
 export async function setVideoUploadsEnabled(userId: string, enabled: boolean): Promise<void> {
   await prisma.user.update({ where: { id: userId }, data: { videoUploadsEnabled: enabled } });
 }
+
+/** Personal setting, unlike isVideoUploadEnabled -- each account's own row, not the admin's. */
+export async function isClimbingModeEnabled(userId: string): Promise<boolean> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { climbingMode: true },
+  });
+  return user?.climbingMode ?? false;
+}
+
+export async function setClimbingMode(userId: string, enabled: boolean): Promise<void> {
+  await prisma.user.update({ where: { id: userId }, data: { climbingMode: enabled } });
+}

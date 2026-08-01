@@ -15,13 +15,27 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { EntryCard } from "@/components/entry-card";
 import { EmptyState } from "@/components/empty-state";
-import { exerciseKey, type WorkoutEntry } from "@/lib/types";
+import { exerciseKey, gymKey, type WorkoutEntry } from "@/lib/types";
 import type { Role } from "@/lib/auth";
 
 function groupByExerciseForDisplay(entries: WorkoutEntry[]) {
   const groups = new Map<string, { representative: WorkoutEntry; count: number }>();
   for (const e of entries) {
     const key = exerciseKey(e);
+    const existing = groups.get(key);
+    if (existing) existing.count += 1;
+    else groups.set(key, { representative: e, count: 1 });
+  }
+  return Array.from(groups.values());
+}
+
+/** Same "first-encountered-in-current-sort-order wins as representative" approach as
+ *  groupByExerciseForDisplay, just keyed on gym+grade instead of exercise name. */
+function groupByGymGradeForDisplay(entries: WorkoutEntry[]) {
+  const groups = new Map<string, { representative: WorkoutEntry; count: number }>();
+  for (const e of entries) {
+    if (e.gym == null || e.grade == null) continue;
+    const key = `${gymKey(e)}::${e.grade}`;
     const existing = groups.get(key);
     if (existing) existing.count += 1;
     else groups.set(key, { representative: e, count: 1 });
@@ -37,26 +51,36 @@ const SORT_OPTIONS = [
   { value: "exercise:asc", label: "Exercise name (A–Z)" },
 ];
 
+const CLIMBING_SORT_OPTIONS = [
+  { value: "grade:desc", label: "Hardest grade first" },
+  { value: "grade:asc", label: "Easiest grade first" },
+  { value: "date:desc", label: "Newest first" },
+  { value: "date:asc", label: "Oldest first" },
+];
+
 export default function LibraryPage() {
   const [entries, setEntries] = useState<WorkoutEntry[] | null>(null);
-  const [facets, setFacets] = useState<{ exercises: string[]; tags: string[] }>({
+  const [facets, setFacets] = useState<{ exercises: string[]; tags: string[]; gyms: string[] }>({
     exercises: [],
     tags: [],
+    gyms: [],
   });
 
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [tag, setTag] = useState("all");
+  const [gymFilter, setGymFilter] = useState("all");
   const [difficulty, setDifficulty] = useState("all");
   const [favorite, setFavorite] = useState(false);
   const [sortValue, setSortValue] = useState("date:desc");
   const [sort, order] = sortValue.split(":");
   const [role, setRole] = useState<Role | null>(null);
+  const [climbingMode, setClimbingMode] = useState<boolean | null>(null);
 
   // Reset the (now stale) results the moment any filter changes, so the loading skeleton shows
   // right away instead of the old list lingering until the new fetch resolves. Done here, during
   // render, rather than in the effect below -- see https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes.
-  const queryKey = [debouncedSearch, tag, difficulty, favorite, sort, order].join("|");
+  const queryKey = [debouncedSearch, tag, gymFilter, difficulty, favorite, sort, order].join("|");
   const [lastQueryKey, setLastQueryKey] = useState(queryKey);
   if (queryKey !== lastQueryKey) {
     setLastQueryKey(queryKey);
@@ -70,9 +94,21 @@ export default function LibraryPage() {
       .catch(() => {});
     fetch("/api/session")
       .then((r) => r.json())
-      .then((data) => setRole(data.role))
+      .then((data) => {
+        setRole(data.role);
+        setClimbingMode(Boolean(data.climbingMode));
+      })
       .catch(() => {});
   }, []);
+
+  // Once we know this account is in climbing mode, default the sort to hardest-grade-first
+  // instead of newest-first -- computed during render (same pattern as queryKey above) rather
+  // than in an effect, so it only fires the one time climbingMode resolves from null to a value.
+  const [lastClimbingMode, setLastClimbingMode] = useState<boolean | null>(null);
+  if (climbingMode !== lastClimbingMode) {
+    setLastClimbingMode(climbingMode);
+    if (climbingMode) setSortValue("grade:desc");
+  }
 
   useEffect(() => {
     const id = setTimeout(() => setDebouncedSearch(search), 300);
@@ -83,6 +119,7 @@ export default function LibraryPage() {
     const params = new URLSearchParams();
     if (debouncedSearch) params.set("q", debouncedSearch);
     if (tag !== "all") params.set("tag", tag);
+    if (gymFilter !== "all") params.set("gym", gymFilter);
     if (difficulty !== "all") params.set("difficulty", difficulty);
     if (favorite) params.set("favorite", "true");
     params.set("sort", sort);
@@ -100,9 +137,12 @@ export default function LibraryPage() {
     return () => {
       cancelled = true;
     };
-  }, [debouncedSearch, tag, difficulty, favorite, sort, order]);
+  }, [debouncedSearch, tag, gymFilter, difficulty, favorite, sort, order]);
 
-  const groups = useMemo(() => (entries ? groupByExerciseForDisplay(entries) : []), [entries]);
+  const groups = useMemo(() => {
+    if (!entries) return [];
+    return climbingMode ? groupByGymGradeForDisplay(entries) : groupByExerciseForDisplay(entries);
+  }, [entries, climbingMode]);
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 px-4 py-8">
@@ -110,8 +150,8 @@ export default function LibraryPage() {
         <h1 className="text-2xl font-semibold tracking-tight">Library</h1>
         <p className="text-muted-foreground">
           {role === "owner"
-            ? "Every set you've logged, in one place."
-            : "Every set logged here, in one place."}
+            ? `Every ${climbingMode ? "climb" : "set"} you've logged, in one place.`
+            : `Every ${climbingMode ? "climb" : "set"} logged here, in one place.`}
         </p>
       </div>
 
@@ -121,29 +161,45 @@ export default function LibraryPage() {
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search exercise…"
+            placeholder={climbingMode ? "Search route / problem…" : "Search exercise…"}
             className="pl-8"
           />
         </div>
 
-        <Select
-          value="all"
-          onValueChange={(v) => {
-            if (v && v !== "all") setSearch(v);
-          }}
-        >
-          <SelectTrigger className="w-full sm:w-44">
-            <SelectValue placeholder="Jump to exercise" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Jump to exercise…</SelectItem>
-            {facets.exercises.map((ex) => (
-              <SelectItem key={ex} value={ex}>
-                {ex}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {climbingMode ? (
+          <Select value={gymFilter} onValueChange={(v) => v && setGymFilter(v)}>
+            <SelectTrigger className="w-full sm:w-44">
+              <SelectValue placeholder="Jump to gym" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Jump to gym…</SelectItem>
+              {facets.gyms.map((g) => (
+                <SelectItem key={g} value={g}>
+                  {g}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : (
+          <Select
+            value="all"
+            onValueChange={(v) => {
+              if (v && v !== "all") setSearch(v);
+            }}
+          >
+            <SelectTrigger className="w-full sm:w-44">
+              <SelectValue placeholder="Jump to exercise" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Jump to exercise…</SelectItem>
+              {facets.exercises.map((ex) => (
+                <SelectItem key={ex} value={ex}>
+                  {ex}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
 
         <Select value={tag} onValueChange={(v) => v && setTag(v)}>
           <SelectTrigger className="w-full sm:w-40">
@@ -178,7 +234,7 @@ export default function LibraryPage() {
             <SelectValue placeholder="Sort" />
           </SelectTrigger>
           <SelectContent>
-            {SORT_OPTIONS.map((o) => (
+            {(climbingMode ? CLIMBING_SORT_OPTIONS : SORT_OPTIONS).map((o) => (
               <SelectItem key={o.value} value={o.value}>
                 {o.label}
               </SelectItem>
@@ -206,11 +262,11 @@ export default function LibraryPage() {
           title="No entries match these filters"
           description={
             role === "owner"
-              ? "Try clearing a filter, or log a new set to grow your library."
+              ? `Try clearing a filter, or log a new ${climbingMode ? "climb" : "set"} to grow your library.`
               : "Try clearing a filter to see more."
           }
           actionHref={role === "owner" ? "/new" : undefined}
-          actionLabel={role === "owner" ? "Log a new set" : undefined}
+          actionLabel={role === "owner" ? `Log a new ${climbingMode ? "climb" : "set"}` : undefined}
         />
       ) : (
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
@@ -221,7 +277,9 @@ export default function LibraryPage() {
               count={count}
               href={
                 count > 1
-                  ? `/exercise?name=${encodeURIComponent(representative.exerciseName)}`
+                  ? climbingMode
+                    ? `/exercise?gym=${encodeURIComponent(representative.gym as string)}&grade=${representative.grade}`
+                    : `/exercise?name=${encodeURIComponent(representative.exerciseName)}`
                   : undefined
               }
             />

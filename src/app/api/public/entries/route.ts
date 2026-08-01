@@ -10,6 +10,7 @@ export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams;
   const q = params.get("q")?.trim();
   const tag = params.get("tag")?.trim();
+  const gym = params.get("gym")?.trim();
   const difficulty = params.get("difficulty");
   const favorite = params.get("favorite");
   const sort = params.get("sort") ?? "date";
@@ -19,6 +20,7 @@ export async function GET(request: NextRequest) {
 
   if (q) where.exerciseName = { contains: q, mode: "insensitive" };
   if (tag) where.tags = { has: tag };
+  if (gym) where.gym = { equals: gym, mode: "insensitive" };
   if (difficulty) where.difficulty = Number(difficulty);
   if (favorite === "true") where.isFavorite = true;
 
@@ -27,7 +29,9 @@ export async function GET(request: NextRequest) {
       ? { difficulty: order }
       : sort === "exercise"
         ? { exerciseName: order }
-        : { recordedAt: order };
+        : sort === "grade"
+          ? { grade: order }
+          : { recordedAt: order };
 
   const entries = await prisma.workoutEntry.findMany({ where, orderBy });
   return NextResponse.json(entries);

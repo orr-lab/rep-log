@@ -7,25 +7,28 @@ import { VideoThumbnail } from "@/components/video-thumbnail";
 import { Badge } from "@/components/ui/badge";
 import { getPublicAdminUserId } from "@/lib/public-scope";
 import { personalRecords } from "@/lib/stats";
+import { formatGrade } from "@/lib/climbing";
 
 export const dynamic = "force-dynamic";
 
 export default async function PublicExercisePage({
   searchParams,
 }: {
-  searchParams: Promise<{ name?: string }>;
+  searchParams: Promise<{ name?: string; gym?: string; grade?: string }>;
 }) {
   const adminId = await getPublicAdminUserId();
   if (!adminId) notFound();
 
-  const { name } = await searchParams;
-  if (!name) notFound();
+  const { name, gym, grade: gradeParam } = await searchParams;
+  const grade = gradeParam != null ? Number(gradeParam) : null;
+  const isClimbView = Boolean(gym && grade != null && !Number.isNaN(grade));
+
+  if (!isClimbView && !name) notFound();
 
   const rows = await prisma.workoutEntry.findMany({
-    where: {
-      userId: adminId,
-      exerciseName: { equals: name, mode: "insensitive" },
-    },
+    where: isClimbView
+      ? { userId: adminId, gym: { equals: gym, mode: "insensitive" }, grade }
+      : { userId: adminId, exerciseName: { equals: name, mode: "insensitive" } },
     orderBy: { recordedAt: "asc" },
   });
 
@@ -42,15 +45,18 @@ export default async function PublicExercisePage({
   const oldest = entries[0];
   const newest = entries[entries.length - 1];
   const allTags = Array.from(new Set(entries.flatMap((e) => e.tags)));
-  const pr = personalRecords(entries)[0];
+  const pr = isClimbView ? null : personalRecords(entries)[0];
+  const title = isClimbView ? `${gym} — ${formatGrade(grade as number)}` : (name as string);
+  const unit = isClimbView ? "send" : "set";
 
   return (
     <div className="mx-auto max-w-5xl space-y-10 px-4 py-8">
       <div>
-        <h1 className="text-3xl font-semibold tracking-tight">{name}</h1>
+        <h1 className="text-3xl font-semibold tracking-tight">{title}</h1>
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <Badge variant="secondary">
-            {entries.length} set{entries.length === 1 ? "" : "s"}
+            {entries.length} {unit}
+            {entries.length === 1 ? "" : "s"}
           </Badge>
           {pr && (
             <Badge className="gap-1">
@@ -82,7 +88,9 @@ export default async function PublicExercisePage({
 
       {entries.length > 1 && (
         <section className="space-y-3">
-          <h2 className="text-lg font-semibold">First set vs. latest set</h2>
+          <h2 className="text-lg font-semibold">
+            First {unit} vs. latest {unit}
+          </h2>
           <div className="grid gap-4 sm:grid-cols-2">
             {[oldest, newest].map((e, i) => (
               <Link
@@ -91,14 +99,15 @@ export default async function PublicExercisePage({
                 className="block rounded-xl border p-3 transition-shadow hover:shadow-md"
               >
                 <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  {i === 0 ? "First set" : "Latest set"} ·{" "}
+                  {i === 0 ? `First ${unit}` : `Latest ${unit}`} ·{" "}
                   {new Date(e.recordedAt).toLocaleDateString()}
                 </p>
                 <VideoThumbnail entry={e} />
                 <div className="mt-2 flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">
-                    {e.weight != null ? `${e.weight} lb/kg` : "Bodyweight"} · Exertion{" "}
-                    {e.difficulty}/5
+                    {isClimbView
+                      ? `Exertion ${e.difficulty}/5`
+                      : `${e.weight != null ? `${e.weight} lb/kg` : "Bodyweight"} · Exertion ${e.difficulty}/5`}
                   </span>
                   {e.isFavorite && <span className="text-primary">★ favorite</span>}
                 </div>
@@ -130,9 +139,18 @@ export default async function PublicExercisePage({
                     })}
                   </p>
                   <p className="text-sm text-muted-foreground">
-                    {e.weight != null ? `${e.weight} lb/kg · ` : ""}
-                    Exertion {e.difficulty}/5
-                    {e.sets != null && e.reps != null ? ` · ${e.sets}x${e.reps}` : ""}
+                    {isClimbView ? (
+                      <>
+                        Exertion {e.difficulty}/5
+                        {e.sets != null ? ` · ${e.sets} attempt${e.sets === 1 ? "" : "s"}` : ""}
+                      </>
+                    ) : (
+                      <>
+                        {e.weight != null ? `${e.weight} lb/kg · ` : ""}
+                        Exertion {e.difficulty}/5
+                        {e.sets != null && e.reps != null ? ` · ${e.sets}x${e.reps}` : ""}
+                      </>
+                    )}
                   </p>
                   {e.notes && <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{e.notes}</p>}
                 </div>

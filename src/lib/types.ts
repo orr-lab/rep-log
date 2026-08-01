@@ -4,6 +4,8 @@ export interface WorkoutEntry {
   id: string;
   exerciseName: string;
   weight: number | null;
+  gym: string | null;
+  grade: number | null;
   recordedAt: string;
   videoSource: VideoSource;
   videoUrl: string;
@@ -24,6 +26,10 @@ export interface WorkoutEntry {
 
 export function exerciseKey(entry: Pick<WorkoutEntry, "exerciseName">): string {
   return entry.exerciseName.trim().toLowerCase();
+}
+
+export function gymKey(entry: Pick<WorkoutEntry, "gym">): string {
+  return (entry.gym ?? "").trim().toLowerCase();
 }
 
 export interface EntryComment {

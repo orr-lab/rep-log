@@ -14,12 +14,20 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { TagInput } from "@/components/tag-input";
 import { ExertionPicker } from "@/components/exertion-picker";
 import { ExerciseNameInput } from "@/components/exercise-name-input";
 import { extractYouTubeId, youtubeEmbedUrl } from "@/lib/youtube";
 import { MAX_UPLOAD_BYTES } from "@/lib/validation";
 import { COMMON_EXERCISES, COMMON_TAGS } from "@/lib/exercise-catalog";
+import { GRADE_OPTIONS, formatGrade } from "@/lib/climbing";
 import type { WorkoutEntry, VideoSource } from "@/lib/types";
 
 function toDateInputValue(iso?: string) {
@@ -38,16 +46,20 @@ export function WorkoutEntryForm({
   initialData,
   userId,
   uploadsEnabled,
+  climbingMode,
 }: {
   mode: "create" | "edit";
   initialData?: WorkoutEntry;
   userId: string;
   uploadsEnabled: boolean;
+  climbingMode: boolean;
 }) {
   const router = useRouter();
 
   const [exerciseName, setExerciseName] = useState(initialData?.exerciseName ?? "");
   const [weight, setWeight] = useState(initialData?.weight?.toString() ?? "");
+  const [gym, setGym] = useState(initialData?.gym ?? "");
+  const [grade, setGrade] = useState(initialData?.grade?.toString() ?? "");
   const [recordedAt, setRecordedAt] = useState(toDateInputValue(initialData?.recordedAt));
   const [tags, setTags] = useState<string[]>(initialData?.tags ?? []);
   const [difficulty, setDifficulty] = useState(initialData?.difficulty ?? 3);
@@ -77,6 +89,7 @@ export function WorkoutEntryForm({
 
   const [loggedExercises, setLoggedExercises] = useState<string[]>([]);
   const [loggedTags, setLoggedTags] = useState<string[]>([]);
+  const [loggedGyms, setLoggedGyms] = useState<string[]>([]);
 
   useEffect(() => {
     fetch("/api/facets")
@@ -84,6 +97,7 @@ export function WorkoutEntryForm({
       .then((data) => {
         setLoggedExercises(Array.isArray(data.exercises) ? data.exercises : []);
         setLoggedTags(Array.isArray(data.tags) ? data.tags : []);
+        setLoggedGyms(Array.isArray(data.gyms) ? data.gyms : []);
       })
       .catch(() => {});
   }, []);
@@ -96,6 +110,7 @@ export function WorkoutEntryForm({
     () => Array.from(new Set([...loggedTags, ...COMMON_TAGS])),
     [loggedTags]
   );
+  const gymSuggestions = useMemo(() => Array.from(new Set(loggedGyms)), [loggedGyms]);
 
   useEffect(() => {
     return () => {
@@ -196,14 +211,21 @@ export function WorkoutEntryForm({
   }
 
   const canSubmit = useMemo(() => {
-    return Boolean(exerciseName.trim() && recordedAt && (!replacingVideo || videoUrl));
-  }, [exerciseName, recordedAt, replacingVideo, videoUrl]);
+    const climbingFieldsOk = !climbingMode || Boolean(gym.trim() && grade !== "");
+    return Boolean(
+      exerciseName.trim() && recordedAt && climbingFieldsOk && (!replacingVideo || videoUrl)
+    );
+  }, [exerciseName, recordedAt, replacingVideo, videoUrl, climbingMode, gym, grade]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
 
     if (!exerciseName.trim()) {
-      toast.error("Give the exercise a name first.");
+      toast.error(climbingMode ? "Give the route or problem a name first." : "Give the exercise a name first.");
+      return;
+    }
+    if (climbingMode && (!gym.trim() || grade === "")) {
+      toast.error("Add a gym and a grade first.");
       return;
     }
     if (replacingVideo && !videoUrl) {
@@ -214,7 +236,9 @@ export function WorkoutEntryForm({
     setSubmitting(true);
     const payload = {
       exerciseName: exerciseName.trim(),
-      weight: weight ? Number(weight) : null,
+      weight: climbingMode ? null : weight ? Number(weight) : null,
+      gym: climbingMode ? gym.trim() : null,
+      grade: climbingMode && grade !== "" ? Number(grade) : null,
       recordedAt: new Date(recordedAt).toISOString(),
       videoSource,
       videoUrl: replacingVideo ? videoUrl : initialData!.videoUrl,
@@ -382,7 +406,7 @@ export function WorkoutEntryForm({
 
       <section className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
-          <Label htmlFor="exerciseName">Exercise</Label>
+          <Label htmlFor="exerciseName">{climbingMode ? "Route / problem" : "Exercise"}</Label>
           <ExerciseNameInput
             id="exerciseName"
             value={exerciseName}
@@ -400,21 +424,52 @@ export function WorkoutEntryForm({
             required
           />
         </div>
-        <div className="space-y-2">
-          <Label htmlFor="weight">Weight (optional)</Label>
-          <Input
-            id="weight"
-            type="number"
-            min={0}
-            step="0.5"
-            value={weight}
-            onChange={(e) => setWeight(e.target.value)}
-            placeholder="e.g. 135 (leave blank for bodyweight)"
-          />
-        </div>
-        <div className="grid grid-cols-2 gap-2">
+
+        {climbingMode ? (
+          <>
+            <div className="space-y-2">
+              <Label htmlFor="gym">Gym</Label>
+              <ExerciseNameInput
+                id="gym"
+                value={gym}
+                onChange={setGym}
+                suggestions={gymSuggestions}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="grade">Grade</Label>
+              <Select value={grade} onValueChange={(v) => v && setGrade(v)}>
+                <SelectTrigger id="grade" className="w-full">
+                  <SelectValue placeholder="Select a grade" />
+                </SelectTrigger>
+                <SelectContent>
+                  {GRADE_OPTIONS.map((g) => (
+                    <SelectItem key={g} value={String(g)}>
+                      {formatGrade(g)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </>
+        ) : (
           <div className="space-y-2">
-            <Label htmlFor="sets">Sets</Label>
+            <Label htmlFor="weight">Weight (optional)</Label>
+            <Input
+              id="weight"
+              type="number"
+              min={0}
+              step="0.5"
+              value={weight}
+              onChange={(e) => setWeight(e.target.value)}
+              placeholder="e.g. 135 (leave blank for bodyweight)"
+            />
+          </div>
+        )}
+
+        <div className={climbingMode ? "" : "grid grid-cols-2 gap-2"}>
+          <div className="space-y-2">
+            <Label htmlFor="sets">{climbingMode ? "Attempts" : "Sets"}</Label>
             <Input
               id="sets"
               type="number"
@@ -424,17 +479,19 @@ export function WorkoutEntryForm({
               placeholder="e.g. 3"
             />
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="reps">Reps</Label>
-            <Input
-              id="reps"
-              type="number"
-              min={1}
-              value={reps}
-              onChange={(e) => setReps(e.target.value)}
-              placeholder="e.g. 5"
-            />
-          </div>
+          {!climbingMode && (
+            <div className="space-y-2">
+              <Label htmlFor="reps">Reps</Label>
+              <Input
+                id="reps"
+                type="number"
+                min={1}
+                value={reps}
+                onChange={(e) => setReps(e.target.value)}
+                placeholder="e.g. 5"
+              />
+            </div>
+          )}
         </div>
       </section>
 

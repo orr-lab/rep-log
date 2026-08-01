@@ -20,6 +20,11 @@ model User {
   visitorPasswordHash   String?
   publicProfileEnabled  Boolean        @default(false)
   videoUploadsEnabled   Boolean        @default(true)
+  // Personal preference, not admin-gated -- like visitorPasswordHash, each account controls its
+  // own. Switches that account's whole logging experience (fields, records, grouping) to
+  // climbing vocabulary. Read live on every page, never cached in the session cookie, so toggling
+  // it takes effect immediately without needing to log back in.
+  climbingMode          Boolean        @default(false)
   createdAt             DateTime       @default(now())
   entries               WorkoutEntry[]
 }
@@ -28,6 +33,12 @@ model WorkoutEntry {
   id           String      @id @default(cuid())
   exerciseName String
   weight       Float?
+  // Climbing-mode fields. Both nullable since only populated when climbingMode is on for the
+  // logging account; grade is stored as an integer V-scale number (0 = V0 .. 17 = V17) rather
+  // than free text so "best grade" and "sorted by highest grade first" are well-defined sorts,
+  // not string comparisons across incompatible notations.
+  gym          String?
+  grade        Int?
   recordedAt   DateTime
   videoSource  VideoSource
   videoUrl     String
@@ -51,6 +62,7 @@ model WorkoutEntry {
   comments Comment[]
 
   @@index([exerciseName])
+  @@index([gym])
   @@index([recordedAt])
   @@index([userId])
 }

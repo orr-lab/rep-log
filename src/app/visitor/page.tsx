@@ -7,6 +7,7 @@ import { EntryCard } from "@/components/entry-card";
 import { EmptyState } from "@/components/empty-state";
 import { TrendBarChart } from "@/components/charts/trend-bar-chart";
 import { getPublicAdminUserId } from "@/lib/public-scope";
+import { isClimbingModeEnabled } from "@/lib/users";
 import {
   currentStreak,
   entriesInLastDays,
@@ -22,7 +23,10 @@ export default async function PublicDashboardPage() {
   const adminId = await getPublicAdminUserId();
   if (!adminId) notFound();
 
-  const entries = await getAllEntries(adminId);
+  const [entries, climbingMode] = await Promise.all([
+    getAllEntries(adminId),
+    isClimbingModeEnabled(adminId),
+  ]);
 
   if (entries.length === 0) {
     return (
@@ -39,7 +43,9 @@ export default async function PublicDashboardPage() {
   const recent = entries.slice(0, 8);
   const monthly = entriesPerMonth(entries).map((b) => ({ label: b.label, value: b.count }));
   const streak = currentStreak(entries);
-  const thisWeekWeighted = entriesInLastDays(entries, 7).filter((e) => e.weight != null);
+  const thisWeekTracked = entriesInLastDays(entries, 7).filter((e) =>
+    climbingMode ? e.grade != null : e.weight != null
+  );
 
   return (
     <div className="mx-auto max-w-6xl space-y-10 px-4 py-8">
@@ -52,7 +58,11 @@ export default async function PublicDashboardPage() {
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatTile icon={ClipboardList} label="Total entries" value={entries.length} />
-        <StatTile icon={Dumbbell} label="Exercises trained" value={uniqueExerciseCount(entries)} />
+        <StatTile
+          icon={Dumbbell}
+          label={climbingMode ? "Routes / problems climbed" : "Exercises trained"}
+          value={uniqueExerciseCount(entries)}
+        />
         <StatTile
           icon={Clock}
           label="Total time logged"
@@ -61,11 +71,13 @@ export default async function PublicDashboardPage() {
         <StatTile icon={Flame} label="Current streak" value={`${streak} day${streak === 1 ? "" : "s"}`} />
       </div>
 
-      {thisWeekWeighted.length > 0 && (
+      {thisWeekTracked.length > 0 && (
         <section className="space-y-3">
-          <h2 className="text-lg font-semibold">This week&apos;s weighted lifts</h2>
+          <h2 className="text-lg font-semibold">
+            {climbingMode ? "This week's sends" : "This week's weighted lifts"}
+          </h2>
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-            {thisWeekWeighted.map((e) => (
+            {thisWeekTracked.map((e) => (
               <EntryCard key={e.id} entry={e} basePath="/visitor" />
             ))}
           </div>

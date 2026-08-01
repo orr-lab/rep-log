@@ -9,6 +9,7 @@ import { AiFeedbackSection } from "@/components/ai-feedback-section";
 import { CommentsSection } from "@/components/comments-section";
 import { Badge } from "@/components/ui/badge";
 import { getSession } from "@/lib/session";
+import { formatGrade } from "@/lib/climbing";
 
 export const dynamic = "force-dynamic";
 
@@ -44,7 +45,10 @@ export default async function EntryDetailPage({
     createdAt: c.createdAt.toISOString(),
   }));
 
-  const exerciseHref = `/exercise?name=${encodeURIComponent(entry.exerciseName)}`;
+  const isClimb = entry.gym != null && entry.grade != null;
+  const groupHref = isClimb
+    ? `/exercise?gym=${encodeURIComponent(entry.gym as string)}&grade=${entry.grade}`
+    : `/exercise?name=${encodeURIComponent(entry.exerciseName)}`;
 
   return (
     <div className="mx-auto max-w-4xl space-y-6 px-4 py-8">
@@ -59,8 +63,14 @@ export default async function EntryDetailPage({
               day: "numeric",
               year: "numeric",
             })}
-            {entry.weight != null ? ` · ${entry.weight} lb/kg` : ""}
-            {entry.sets != null && entry.reps != null ? ` · ${entry.sets}x${entry.reps}` : ""}
+            {isClimb
+              ? ` · ${entry.gym} · ${formatGrade(entry.grade as number)}`
+              : entry.weight != null
+                ? ` · ${entry.weight} lb/kg`
+                : ""}
+            {!isClimb && entry.sets != null && entry.reps != null
+              ? ` · ${entry.sets}x${entry.reps}`
+              : ""}
           </p>
         </div>
         <EntryActions id={entry.id} isFavorite={entry.isFavorite} role={role} />
@@ -93,11 +103,11 @@ export default async function EntryDetailPage({
       <CommentsSection entryId={entry.id} role={role} comments={comments} />
 
       <Link
-        href={exerciseHref}
+        href={groupHref}
         className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
       >
         <Dumbbell className="size-4" />
-        See every set of this exercise
+        {isClimb ? "See every send at this grade" : "See every set of this exercise"}
       </Link>
     </div>
   );
