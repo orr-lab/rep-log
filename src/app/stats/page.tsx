@@ -12,7 +12,9 @@ import {
   topByFrequency,
   workoutMinutesPerMonth,
 } from "@/lib/stats";
+import { gradeChartDomain, gradeTrendByMonth } from "@/lib/climbing";
 import { getSession } from "@/lib/session";
+import { isClimbingModeEnabled } from "@/lib/users";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +22,10 @@ export default async function StatsPage() {
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const entries = await getAllEntries(session.userId);
+  const [entries, climbingMode] = await Promise.all([
+    getAllEntries(session.userId),
+    isClimbingModeEnabled(session.userId),
+  ]);
   const isOwner = session.role === "owner";
 
   if (entries.length === 0) {
@@ -53,7 +58,14 @@ export default async function StatsPage() {
     label: b.label,
     value: b.value,
   }));
+  const gradeTrend = gradeTrendByMonth(entries).map((b) => ({
+    label: b.label,
+    value: b.value,
+  }));
   const exerciseBreakdown = topByFrequency(entries.map((e) => e.exerciseName));
+  const gymBreakdown = topByFrequency(
+    entries.map((e) => e.gym).filter((g): g is string => g != null)
+  );
   const tagBreakdown = topByFrequency(entries.flatMap((e) => e.tags));
 
   return (
@@ -89,20 +101,43 @@ export default async function StatsPage() {
       </div>
 
       <section className="space-y-3">
-        <h2 className="text-lg font-semibold">Exertion trend</h2>
-        <p className="text-sm text-muted-foreground">
-          Average self-rated exertion of sets logged each month.
-        </p>
-        <div className="rounded-xl border p-4">
-          <TrendLineChart data={difficultyTrend} valueLabel="avg. exertion" domain={[1, 10]} />
-        </div>
+        {climbingMode ? (
+          <>
+            <h2 className="text-lg font-semibold">Grade trend</h2>
+            <p className="text-sm text-muted-foreground">
+              Average grade climbed each month.
+            </p>
+            <div className="rounded-xl border p-4">
+              <TrendLineChart
+                data={gradeTrend}
+                valueLabel="avg. grade"
+                domain={gradeChartDomain(entries)}
+              />
+            </div>
+          </>
+        ) : (
+          <>
+            <h2 className="text-lg font-semibold">Exertion trend</h2>
+            <p className="text-sm text-muted-foreground">
+              Average self-rated exertion of sets logged each month.
+            </p>
+            <div className="rounded-xl border p-4">
+              <TrendLineChart data={difficultyTrend} valueLabel="avg. exertion" domain={[1, 10]} />
+            </div>
+          </>
+        )}
       </section>
 
       <div className="grid gap-6 lg:grid-cols-2">
         <section className="space-y-3">
-          <h2 className="text-lg font-semibold">Most-performed exercises</h2>
+          <h2 className="text-lg font-semibold">
+            {climbingMode ? "Most-climbed gyms" : "Most-performed exercises"}
+          </h2>
           <div className="rounded-xl border p-4">
-            <RankedBarChart data={exerciseBreakdown} valueLabel="sets" />
+            <RankedBarChart
+              data={climbingMode ? gymBreakdown : exerciseBreakdown}
+              valueLabel={climbingMode ? "climbs" : "sets"}
+            />
           </div>
         </section>
 
