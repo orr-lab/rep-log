@@ -9,6 +9,8 @@ training log without giving out a password.
 The admin's log is also viewable read-only, without signing in, at `/visitor`, when that's turned
 on (see [Public visitor profile](#public-visitor-profile-optional)).
 
+**Live at [replog.orrknaan.com](https://replog.orrknaan.com).**
+
 Built with Next.js (App Router) + TypeScript, Tailwind + shadcn/ui, Prisma + Postgres, Vercel Blob
 for uploaded video, and Recharts for the stats page.
 
@@ -29,7 +31,10 @@ for uploaded video, and Recharts for the stats page.
   weighted lifts" section; a library with search/filter/sort; and a per-exercise view showing
   every set of the same exercise over time, plus that exercise's personal record (PR).
 - **Personal records**: a `/records` table listing your all-time heaviest logged set for every
-  exercise, sorted heaviest-first.
+  exercise, sorted heaviest-first, linking straight to the entry that set each record.
+- **Climbing mode**: an optional per-account toggle that switches the whole logging experience —
+  entry form, records, library — to gyms and V-scale grades instead of weight — see
+  [Climbing mode](#climbing-mode).
 - **AI form feedback**: an optional Gemini-powered rating and coaching note on your form per
   entry — see [AI feedback](#ai-feedback-gemini).
 - **Comments**: the account owner and anyone with that account's visitor password can leave
@@ -53,6 +58,11 @@ There's no separate "Exercise" table. A **WorkoutEntry** is one set of one exerc
 video + weight/sets/reps + tags + exertion + notes). Exercises are computed on the fly by grouping
 entries on `exerciseName` (case-insensitive) — see [src/lib/stats.ts](src/lib/stats.ts) and the
 `/exercise` route.
+
+The same `WorkoutEntry` table also holds two nullable climbing-specific columns, `gym` and
+`grade`, populated only when [climbing mode](#climbing-mode) is on for the logging account — there
+was no need for a separate table or entry type, since an account is either logging weights or
+logging climbs, never a per-entry mix.
 
 ## Setup
 
@@ -286,6 +296,36 @@ see `VISITOR_ALLOWED_MUTATION_PATTERNS` in [src/middleware.ts](src/middleware.ts
 (`DELETE /api/entries/[id]/comments/[commentId]`) stays outside that carve-out and is also
 double-checked for `role === "owner"` in the handler itself.
 
+## Climbing mode
+
+A personal, per-account toggle in Settings ("Climbing mode") — not admin-gated, since it's about
+what an individual account trains, not an app-wide policy. Read fresh from the database on every
+request (`isClimbingModeEnabled()` in [src/lib/users.ts](src/lib/users.ts)), same as the other
+toggles, so flipping it takes effect immediately without needing to log back in. Turning it on
+switches that account's whole logging experience:
+
+- The entry form swaps the Weight field for a **Gym** field (autocompleted from your own logged
+  gyms) and a **Grade** picker.
+- Grades are a fixed **V-scale** (V0–V17), stored as an integer rather than free text, so "best
+  grade" and "hardest first" sorting stay well-defined. Climbing has several incompatible grading
+  systems (V-scale, YDS, French/Font); mixing free-text notations would make ranking meaningless,
+  so this app picks one rather than trying to normalize across all of them.
+- `/records` becomes a per-gym table: your hardest grade sent at each gym, how many times you've
+  sent that grade there, and a link straight to the earliest entry that reached it.
+- The library groups entries into "stacks" by gym+grade instead of exercise name, sorted
+  hardest-first by default instead of newest-first.
+- The `/exercise` progression page accepts either `?name=` (regular mode) or `?gym=&grade=`
+  (climbing mode) and adapts its labels (sends vs. sets, first/latest send, attempts) accordingly.
+- The dashboard's weekly section becomes "This week's sends" instead of "This week's weighted
+  lifts," and route/problem-name and tag autocomplete switch to a climbing-appropriate catalog
+  (`COMMON_CLIMBING_TAGS` in [src/lib/climbing.ts](src/lib/climbing.ts)) instead of the
+  weightlifting one — route names in particular have no sensible "common" catalog the way
+  exercises do, so climbing mode only suggests from what you've actually logged before.
+
+Existing weight-based entries aren't touched by the toggle: `gym`/`grade` are nullable columns, so
+an account can flip the toggle at any time without losing or reinterpreting anything already
+logged — new entries just start using whichever field set is active.
+
 ## Staying on the free tier
 
 - **Uploads are capped at 100MB** in the UI (`MAX_UPLOAD_BYTES` in
@@ -320,18 +360,24 @@ double-checked for `role === "owner"` in the handler itself.
   "last N days" calculations shared by the dashboard, stats, and records pages
 - `src/lib/exercise-catalog.ts` — static seed lists (`COMMON_EXERCISES`, `COMMON_TAGS`) merged
   at the UI layer with an account's own logged history to power autocomplete
+- `src/lib/climbing.ts` — climbing mode: the V-scale grade catalog, per-gym record calculation,
+  and gym+grade stack-grouping, plus the climbing-specific tag catalog — see
+  [Climbing mode](#climbing-mode)
 - `scripts/seed-admin.js` — one-time rollout script, see [Accounts](#accounts)
 - `scripts/reset-password.js` — local-only break-glass password reset, see
   [Resetting a forgotten password](#resetting-a-forgotten-password)
+- `scripts/generate-favicon.js` — local-only tool that rasterizes `src/app/icon.svg` into
+  `src/app/favicon.ico`; rerun it by hand if you ever change the icon (not part of the app itself)
 - `src/app/api/*` — entries CRUD (scoped per account), entry comments (owner + visitor can post,
-  owner-only delete), Blob upload token endpoint, login/logout, facets (distinct exercises/tags
-  for filters and autocomplete), `users/*` (account management, admin-only where noted
-  in-handler), `public/*` (read-only, unauthenticated, see
+  owner-only delete), Blob upload token endpoint, login/logout, facets (distinct exercises/tags/
+  gyms for filters and autocomplete), `users/*` (account management and personal toggles like
+  climbing mode, admin-only where noted in-handler), `public/*` (read-only, unauthenticated, see
   [Public visitor profile](#public-visitor-profile-optional))
-- `src/app/*` — dashboard, `/new`, `/library`, `/exercise` (progression view + PR badge),
-  `/records` (all-time PR table), `/entries/[id]` (+ `/edit`, + comments), `/stats`, `/settings`
-  (account + user management), `/visitor/*` (public mirror of the same pages, scoped to the
-  admin's log instead of a session — comments excluded, see [Comments](#comments))
+- `src/app/*` — dashboard, `/new`, `/library`, `/exercise` (progression view + PR badge, or the
+  gym+grade group view in climbing mode), `/records` (all-time PR table, or per-gym table in
+  climbing mode), `/entries/[id]` (+ `/edit`, + comments), `/stats`, `/settings` (account + user
+  management + climbing mode toggle), `/visitor/*` (public mirror of the same pages, scoped to
+  the admin's log instead of a session — comments excluded, see [Comments](#comments))
 
 ## License
 
