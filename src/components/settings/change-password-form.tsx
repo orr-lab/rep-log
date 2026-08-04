@@ -8,12 +8,15 @@ import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 
 export function ChangePasswordForm() {
-  const [currentPassword, setCurrentPassword] = useState("");
-  const [newPassword, setNewPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    const form = e.currentTarget;
+    const formData = new FormData(form);
+    const currentPassword = String(formData.get("currentPassword") ?? "");
+    const newPassword = String(formData.get("newPassword") ?? "");
+
     setSubmitting(true);
     try {
       const res = await fetch("/api/users/me/password", {
@@ -28,8 +31,7 @@ export function ChangePasswordForm() {
         );
       }
       toast.success("Password changed");
-      setCurrentPassword("");
-      setNewPassword("");
+      form.reset();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Something went wrong.");
     } finally {
@@ -45,21 +47,12 @@ export function ChangePasswordForm() {
           id="currentPassword"
           name="currentPassword"
           autoComplete="current-password"
-          value={currentPassword}
-          onChange={(e) => setCurrentPassword(e.target.value)}
           required
         />
       </div>
       <div className="space-y-2">
         <Label htmlFor="newPassword">New password</Label>
-        <PasswordInput
-          id="newPassword"
-          name="newPassword"
-          autoComplete="new-password"
-          value={newPassword}
-          onChange={(e) => setNewPassword(e.target.value)}
-          required
-        />
+        <PasswordInput id="newPassword" name="newPassword" autoComplete="new-password" required />
         <p className="text-xs text-muted-foreground">
           At least 8 characters, with uppercase, lowercase, a number, and a symbol.
         </p>

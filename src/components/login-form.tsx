@@ -13,15 +13,19 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 export function LoginForm({ publicProfileAvailable }: { publicProfileAvailable: boolean }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setLoading(true);
     setError(null);
+
+    // Read straight from the DOM via FormData rather than React state -- correct regardless of
+    // whether a password manager autofilled the field via a path that fires input events or not.
+    const formData = new FormData(e.currentTarget);
+    const username = String(formData.get("username") ?? "");
+    const password = String(formData.get("password") ?? "");
 
     const res = await fetch("/api/login", {
       method: "POST",
@@ -59,9 +63,8 @@ export function LoginForm({ publicProfileAvailable }: { publicProfileAvailable: 
               name="username"
               autoComplete="username"
               autoFocus
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
               placeholder="Username"
+              required
             />
           </div>
           <div className="space-y-2">
@@ -70,13 +73,12 @@ export function LoginForm({ publicProfileAvailable }: { publicProfileAvailable: 
               id="password"
               name="password"
               autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
               placeholder="Password"
+              required
             />
           </div>
           {error && <p className="text-sm text-destructive">{error}</p>}
-          <Button type="submit" className="w-full" disabled={loading || !username || !password}>
+          <Button type="submit" className="w-full" disabled={loading}>
             {loading ? "Checking…" : "Enter"}
           </Button>
         </form>

@@ -41,11 +41,12 @@ interface UserRow {
 
 function ResetPasswordDialog({ userId, username }: { userId: string; username: string }) {
   const [open, setOpen] = useState(false);
-  const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    const password = String(new FormData(e.currentTarget).get("newPassword") ?? "");
+
     setSubmitting(true);
     try {
       const res = await fetch(`/api/users/${userId}/password`, {
@@ -60,7 +61,6 @@ function ResetPasswordDialog({ userId, username }: { userId: string; username: s
         );
       }
       toast.success(`${username}'s password was reset`);
-      setPassword("");
       setOpen(false);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Something went wrong.");
@@ -92,8 +92,6 @@ function ResetPasswordDialog({ userId, username }: { userId: string; username: s
               id={`reset-${userId}`}
               name="newPassword"
               autoComplete="new-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
               required
             />
             <p className="text-xs text-muted-foreground">{PASSWORD_HINT}</p>
@@ -113,12 +111,15 @@ function ResetPasswordDialog({ userId, username }: { userId: string; username: s
 export function UserManagementPanel({ initialUsers }: { initialUsers: UserRow[] }) {
   const router = useRouter();
   const [users, setUsers] = useState(initialUsers);
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
   const [creating, setCreating] = useState(false);
 
-  async function handleCreate(e: React.FormEvent) {
+  async function handleCreate(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    const form = e.currentTarget;
+    const formData = new FormData(form);
+    const username = String(formData.get("username") ?? "");
+    const password = String(formData.get("newUserPassword") ?? "");
+
     setCreating(true);
     try {
       const res = await fetch("/api/users", {
@@ -143,8 +144,7 @@ export function UserManagementPanel({ initialUsers }: { initialUsers: UserRow[] 
         },
       ]);
       toast.success(`${created.username} created`);
-      setUsername("");
-      setPassword("");
+      form.reset();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Something went wrong.");
     } finally {
@@ -174,8 +174,6 @@ export function UserManagementPanel({ initialUsers }: { initialUsers: UserRow[] 
               id="newUserUsername"
               name="username"
               autoComplete="off"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
               placeholder="Username"
               required
             />
@@ -186,8 +184,6 @@ export function UserManagementPanel({ initialUsers }: { initialUsers: UserRow[] 
               id="newUserPassword"
               name="newUserPassword"
               autoComplete="new-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
               required
             />
           </div>

@@ -8,13 +8,15 @@ import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 
 export function VisitorPasswordForm({ hasVisitorPassword }: { hasVisitorPassword: boolean }) {
-  const [password, setPassword] = useState("");
   const [hasPassword, setHasPassword] = useState(hasVisitorPassword);
   const [submitting, setSubmitting] = useState(false);
   const [clearing, setClearing] = useState(false);
 
-  async function handleSet(e: React.FormEvent) {
+  async function handleSet(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    const form = e.currentTarget;
+    const password = String(new FormData(form).get("visitorPassword") ?? "");
+
     setSubmitting(true);
     try {
       const res = await fetch("/api/users/me/visitor-password", {
@@ -30,7 +32,7 @@ export function VisitorPasswordForm({ hasVisitorPassword }: { hasVisitorPassword
       }
       toast.success(hasPassword ? "Visitor password updated" : "Visitor password set");
       setHasPassword(true);
-      setPassword("");
+      form.reset();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Something went wrong.");
     } finally {
@@ -62,8 +64,6 @@ export function VisitorPasswordForm({ hasVisitorPassword }: { hasVisitorPassword
           id="visitorPassword"
           name="visitorPassword"
           autoComplete="new-password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
           required
         />
         <p className="text-xs text-muted-foreground">
