@@ -67,3 +67,17 @@ export interface WorkoutPlan {
   createdAt: string;
   fulfilledEntryId: string | null;
 }
+
+export interface ExercisePreset {
+  id: string;
+  name: string;
+  categoryId: string;
+  createdAt: string;
+}
+
+export interface ExerciseCategory {
+  id: string;
+  name: string;
+  createdAt: string;
+  presets: ExercisePreset[];
+}

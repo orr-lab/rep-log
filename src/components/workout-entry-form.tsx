@@ -17,7 +17,9 @@ import { Card, CardContent } from "@/components/ui/card";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -29,7 +31,7 @@ import { extractVideoCreationDate } from "@/lib/video-metadata";
 import { compressVideo } from "@/lib/video-compress";
 import { COMMON_EXERCISES, COMMON_TAGS } from "@/lib/exercise-catalog";
 import { GRADE_OPTIONS, formatGrade, COMMON_CLIMBING_TAGS } from "@/lib/climbing";
-import type { WorkoutEntry, VideoSource } from "@/lib/types";
+import type { WorkoutEntry, VideoSource, ExerciseCategory } from "@/lib/types";
 
 function toDateInputValue(iso?: string) {
   const d = iso ? new Date(iso) : new Date();
@@ -124,6 +126,7 @@ export function WorkoutEntryForm({
   const [loggedExercises, setLoggedExercises] = useState<string[]>([]);
   const [loggedTags, setLoggedTags] = useState<string[]>([]);
   const [loggedGyms, setLoggedGyms] = useState<string[]>([]);
+  const [categories, setCategories] = useState<ExerciseCategory[]>([]);
 
   useEffect(() => {
     fetch("/api/facets")
@@ -134,17 +137,27 @@ export function WorkoutEntryForm({
         setLoggedGyms(Array.isArray(data.gyms) ? data.gyms : []);
       })
       .catch(() => {});
+    fetch("/api/exercise-categories")
+      .then((r) => r.json())
+      .then((data) => setCategories(Array.isArray(data) ? data : []))
+      .catch(() => {});
   }, []);
 
   // Route/problem names don't have a "common catalog" the way weightlifting exercises do --
   // they're arbitrary, gym-assigned names -- so in climbing mode only suggest what this account
   // has actually logged before, without merging in the (irrelevant) weightlifting exercise list.
+  // Preset names (see Settings > Exercise presets) count as "known" in both modes, same as
+  // logged history -- they're exactly the kind of thing worth autocompleting too.
+  const presetNames = useMemo(
+    () => categories.flatMap((c) => c.presets.map((p) => p.name)),
+    [categories]
+  );
   const exerciseSuggestions = useMemo(
     () =>
       climbingMode
-        ? Array.from(new Set(loggedExercises))
-        : Array.from(new Set([...loggedExercises, ...COMMON_EXERCISES])),
-    [loggedExercises, climbingMode]
+        ? Array.from(new Set([...loggedExercises, ...presetNames]))
+        : Array.from(new Set([...loggedExercises, ...presetNames, ...COMMON_EXERCISES])),
+    [loggedExercises, presetNames, climbingMode]
   );
   const tagSuggestions = useMemo(
     () =>
@@ -493,6 +506,29 @@ export function WorkoutEntryForm({
       <section className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
           <Label htmlFor="exerciseName">{climbingMode ? "Route / problem" : "Exercise"}</Label>
+          {categories.some((c) => c.presets.length > 0) && (
+            <Select value="" onValueChange={(v) => v && setExerciseName(v)}>
+              <SelectTrigger className="w-full">
+                <SelectValue
+                  placeholder={climbingMode ? "Choose a preset route…" : "Choose a preset exercise…"}
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {categories
+                  .filter((c) => c.presets.length > 0)
+                  .map((category) => (
+                    <SelectGroup key={category.id}>
+                      <SelectLabel>{category.name}</SelectLabel>
+                      {category.presets.map((preset) => (
+                        <SelectItem key={preset.id} value={preset.name}>
+                          {preset.name}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  ))}
+              </SelectContent>
+            </Select>
+          )}
           <AutocompleteInput
             id="exerciseName"
             value={exerciseName}

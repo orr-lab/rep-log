@@ -1,6 +1,54 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { planUpdateSchema } from "@/lib/validation";
 import { getSession } from "@/lib/session";
+
+// Same ownership rule as DELETE below: owner can edit any plan for their own account (including
+// fulfilled ones -- editing never touches the WorkoutEntry a plan is linked to), a visitor may
+// only edit plans they created themselves that haven't been fulfilled yet.
+export async function PUT(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const { id } = await params;
+  const existing = await prisma.workoutPlan.findUnique({
+    where: { id, userId: session.userId },
+    select: { id: true, createdByRole: true, fulfilledEntryId: true },
+  });
+
+  if (!existing) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  const canEdit =
+    session.role === "owner" ||
+    (existing.createdByRole === "visitor" && existing.fulfilledEntryId === null);
+
+  if (!canEdit) {
+    return NextResponse.json(
+      { error: "You can only edit your own plans that haven't been fulfilled yet." },
+      { status: 403 }
+    );
+  }
+
+  const json = await request.json().catch(() => null);
+  const parsed = planUpdateSchema.safeParse(json);
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+  }
+
+  const { plannedDate, ...rest } = parsed.data;
+
+  const plan = await prisma.workoutPlan.update({
+    where: { id, userId: session.userId },
+    data: { ...rest, plannedDate: new Date(plannedDate) },
+  });
+
+  return NextResponse.json(plan);
+}
 
 // Owner can delete any plan for their own account (including fulfilled ones -- this never
 // touches the WorkoutEntry it's linked to, only the plan record). A visitor may only delete

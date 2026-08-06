@@ -3,11 +3,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Calendar } from "@/components/ui/calendar";
-import { AddPlanDialog } from "@/components/plans/add-plan-dialog";
-import { PlanCard } from "@/components/plans/plan-card";
+import { PlanDayCard } from "@/components/plans/plan-day-card";
 import { getWeekDays, getMonthGrid, groupPlansByDay, planDayKey } from "@/lib/plans";
 import type { Role } from "@/lib/auth";
-import type { WorkoutPlan } from "@/lib/types";
+import type { ExerciseCategory, WorkoutPlan } from "@/lib/types";
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -16,6 +15,7 @@ export default function PlanPage() {
   const [role, setRole] = useState<Role | null>(null);
   const [climbingMode, setClimbingMode] = useState(false);
   const [plans, setPlans] = useState<WorkoutPlan[] | null>(null);
+  const [categories, setCategories] = useState<ExerciseCategory[]>([]);
 
   const [calendarMonth, setCalendarMonth] = useState(() => {
     const now = new Date();
@@ -36,6 +36,10 @@ export default function PlanPage() {
         setRole(data.role);
         setClimbingMode(Boolean(data.climbingMode));
       })
+      .catch(() => {});
+    fetch("/api/exercise-categories")
+      .then((r) => r.json())
+      .then((data) => setCategories(Array.isArray(data) ? data : []))
       .catch(() => {});
   }, []);
 
@@ -81,6 +85,10 @@ export default function PlanPage() {
     setPlans((prev) => (prev ? [...prev, plan] : [plan]));
   }
 
+  function handleUpdated(plan: WorkoutPlan) {
+    setPlans((prev) => (prev ? prev.map((p) => (p.id === plan.id ? plan : p)) : prev));
+  }
+
   function handleDeleted(id: string) {
     setPlans((prev) => (prev ? prev.filter((p) => p.id !== id) : prev));
   }
@@ -95,31 +103,18 @@ export default function PlanPage() {
             const dayPlans = grouped.get(key) ?? [];
             const isToday = key === planDayKey(new Date());
             return (
-              <div
+              <PlanDayCard
                 key={key}
-                className={`space-y-3 rounded-xl border p-3 ${isToday ? "border-primary/50 bg-primary/5" : ""}`}
-              >
-                <div>
-                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                    {day.toLocaleDateString(undefined, { weekday: "short", timeZone: "UTC" })}
-                  </p>
-                  <p className="text-sm font-semibold">
-                    {day.toLocaleDateString(undefined, {
-                      month: "short",
-                      day: "numeric",
-                      timeZone: "UTC",
-                    })}
-                  </p>
-                </div>
-
-                <div className="space-y-2">
-                  {dayPlans.map((plan) => (
-                    <PlanCard key={plan.id} plan={plan} role={role} onDeleted={handleDeleted} />
-                  ))}
-                </div>
-
-                <AddPlanDialog plannedDate={key} climbingMode={climbingMode} onCreated={handleCreated} />
-              </div>
+                day={day}
+                dayPlans={dayPlans}
+                role={role}
+                climbingMode={climbingMode}
+                categories={categories}
+                isToday={isToday}
+                onCreated={handleCreated}
+                onUpdated={handleUpdated}
+                onDeleted={handleDeleted}
+              />
             );
           })}
         </div>

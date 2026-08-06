@@ -37,6 +37,8 @@ model User {
   entries               WorkoutEntry[]
   plans                 WorkoutPlan[]
   manualRecords         ManualRecord[]
+  exerciseCategories    ExerciseCategory[]
+  exercisePresets       ExercisePreset[]
 }
 
 model WorkoutEntry {
@@ -110,6 +112,42 @@ model WorkoutPlan {
   fulfilledEntry   WorkoutEntry? @relation(fields: [fulfilledEntryId], references: [id], onDelete: SetNull)
 
   @@index([userId, plannedDate])
+}
+
+// A user-defined grouping for ExercisePreset ("Warmup", "Overhang problems", "Push day", etc.) --
+// account-scoped, owner-only to manage, but readable by anyone signed into the account (owner or
+// visitor) so a trainer using the visitor role can pick from them when planning a session instead
+// of typing the same exercise names out by hand every time.
+model ExerciseCategory {
+  id        String           @id @default(cuid())
+  name      String
+  createdAt DateTime         @default(now())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  presets ExercisePreset[]
+
+  @@unique([userId, name])
+  @@index([userId])
+}
+
+// A single reusable exercise/route name within a category, e.g. "Overhang problems" ->
+// "Blue arête". Just a name -- weight/grade/sets/reps are still chosen per plan or per entry,
+// since those vary session to session even for the same named exercise.
+model ExercisePreset {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+
+  categoryId String
+  category   ExerciseCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([categoryId, name])
+  @@index([userId])
 }
 
 // A record entered directly on the records page, without logging a full video entry -- useful for

@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import type { WorkoutEntry, ManualRecord } from "@/lib/types";
+import type { WorkoutEntry, ManualRecord, ExerciseCategory } from "@/lib/types";
 
 export async function getAllEntries(userId: string): Promise<WorkoutEntry[]> {
   const rows = await prisma.workoutEntry.findMany({
@@ -24,5 +24,27 @@ export async function getAllManualRecords(userId: string): Promise<ManualRecord[
     ...r,
     recordedAt: r.recordedAt.toISOString(),
     createdAt: r.createdAt.toISOString(),
+  }));
+}
+
+/** Every category with its presets nested inside, alphabetized -- the shape the picker UI (in
+ *  AddPlanDialog and the main entry form) and the Settings management panel both want directly,
+ *  no client-side grouping needed. */
+export async function getExerciseCategories(userId: string): Promise<ExerciseCategory[]> {
+  const rows = await prisma.exerciseCategory.findMany({
+    where: { userId },
+    orderBy: { name: "asc" },
+    include: { presets: { orderBy: { name: "asc" } } },
+  });
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    createdAt: r.createdAt.toISOString(),
+    presets: r.presets.map((p) => ({
+      id: p.id,
+      name: p.name,
+      categoryId: p.categoryId,
+      createdAt: p.createdAt.toISOString(),
+    })),
   }));
 }

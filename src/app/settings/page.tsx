@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { getSession } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { listUsers } from "@/lib/users";
+import { getExerciseCategories } from "@/lib/data";
 import { ChangePasswordForm } from "@/components/settings/change-password-form";
 import { VisitorPasswordForm } from "@/components/settings/visitor-password-form";
 import { UserManagementPanel } from "@/components/settings/user-management-panel";
@@ -10,6 +11,7 @@ import { PublicProfileToggle } from "@/components/settings/public-profile-toggle
 import { VideoUploadToggle } from "@/components/settings/video-upload-toggle";
 import { MaxUploadSizeInput } from "@/components/settings/max-upload-size-input";
 import { ClimbingModeToggle } from "@/components/settings/climbing-mode-toggle";
+import { ExercisePresetsPanel } from "@/components/settings/exercise-presets-panel";
 
 export const dynamic = "force-dynamic";
 
@@ -40,6 +42,8 @@ export default async function SettingsPage() {
     ? (await listUsers()).map((u) => ({ ...u, createdAt: u.createdAt.toISOString() }))
     : [];
 
+  const exerciseCategories = await getExerciseCategories(session.userId);
+
   return (
     <div className="mx-auto max-w-2xl space-y-10 px-4 py-8">
       <div>
@@ -66,6 +70,11 @@ export default async function SettingsPage() {
       <section className="space-y-4">
         <h2 className="text-lg font-semibold">Training style</h2>
         <ClimbingModeToggle initialEnabled={me.climbingMode} />
+      </section>
+
+      <section className="space-y-4">
+        <h2 className="text-lg font-semibold">Exercise presets</h2>
+        <ExercisePresetsPanel initialCategories={exerciseCategories} />
       </section>
 
       {session.isAdmin && (

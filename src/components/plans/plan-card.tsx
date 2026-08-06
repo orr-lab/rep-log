@@ -17,23 +17,39 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { EditPlanDialog } from "@/components/plans/edit-plan-dialog";
 import { formatGrade } from "@/lib/climbing";
+import { cn } from "@/lib/utils";
 import type { Role } from "@/lib/auth";
-import type { WorkoutPlan } from "@/lib/types";
+import type { ExerciseCategory, WorkoutPlan } from "@/lib/types";
 
 export function PlanCard({
   plan,
   role,
+  climbingMode,
+  categories,
   onDeleted,
+  onUpdated,
+  compact = true,
 }: {
   plan: WorkoutPlan;
   role: Role | null;
+  climbingMode: boolean;
+  /** The account's exercise-preset categories, see Settings > Exercise presets. */
+  categories: ExerciseCategory[];
   onDeleted: (id: string) => void;
+  onUpdated: (plan: WorkoutPlan) => void;
+  /** Compact (the default) truncates the name and clamps notes to fit the narrow day-strip
+   *  columns on desktop -- fine for a quick glance, but the exercise name and notes can get cut
+   *  off entirely. Pass `false` for a full-text rendering, e.g. inside a per-day detail dialog. */
+  compact?: boolean;
 }) {
   const [deleting, setDeleting] = useState(false);
   const isClimb = plan.grade != null;
   const isFulfilled = plan.fulfilledEntryId != null;
-  const canDelete =
+  // Same rule for edit and delete: the owner can touch any plan, a visitor only their own
+  // not-yet-fulfilled ones (enforced again, authoritatively, by the API routes themselves).
+  const canModify =
     role === "owner" || (role === "visitor" && plan.createdByRole === "visitor" && !isFulfilled);
 
   async function handleDelete() {
@@ -56,8 +72,10 @@ export function PlanCard({
     <div className="space-y-2 rounded-lg border border-border/70 bg-card p-3">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="truncate text-sm font-medium leading-tight">{plan.exerciseName}</p>
-          <p className="truncate text-xs text-muted-foreground">
+          <p className={cn("text-sm font-medium leading-tight", compact && "truncate")}>
+            {plan.exerciseName}
+          </p>
+          <p className={cn("text-xs text-muted-foreground", compact && "truncate")}>
             {isClimb
               ? formatGrade(plan.grade as number)
               : plan.weight != null
@@ -77,7 +95,16 @@ export function PlanCard({
         )}
       </div>
 
-      {plan.notes && <p className="line-clamp-2 text-xs text-muted-foreground">{plan.notes}</p>}
+      {plan.notes && (
+        <p
+          className={cn(
+            "whitespace-pre-wrap text-xs text-muted-foreground",
+            compact && "line-clamp-2"
+          )}
+        >
+          {plan.notes}
+        </p>
+      )}
 
       {plan.link && (
         <a
@@ -109,35 +136,43 @@ export function PlanCard({
           <span />
         )}
 
-        {canDelete && (
-          <AlertDialog>
-            <AlertDialogTrigger
-              aria-label="Delete plan"
-              className={buttonVariants({
-                variant: "ghost",
-                size: "icon-sm",
-                className: "text-destructive hover:text-destructive",
-              })}
-            >
-              {deleting ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Remove this plan?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  This only removes the plan, not any logged entry it points to. This can&apos;t be
-                  undone.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction onClick={handleDelete} disabled={deleting}>
-                  {deleting && <Loader2 className="size-4 animate-spin" />}
-                  Remove
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+        {canModify && (
+          <div className="flex items-center gap-1">
+            <EditPlanDialog
+              plan={plan}
+              climbingMode={climbingMode}
+              categories={categories}
+              onUpdated={onUpdated}
+            />
+            <AlertDialog>
+              <AlertDialogTrigger
+                aria-label="Delete plan"
+                className={buttonVariants({
+                  variant: "ghost",
+                  size: "icon-sm",
+                  className: "text-destructive hover:text-destructive",
+                })}
+              >
+                {deleting ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Remove this plan?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This only removes the plan, not any logged entry it points to. This can&apos;t be
+                    undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleDelete} disabled={deleting}>
+                    {deleting && <Loader2 className="size-4 animate-spin" />}
+                    Remove
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </div>
         )}
       </div>
     </div>

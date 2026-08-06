@@ -128,3 +128,14 @@ export const planInputSchema = z.object({
   notes: z.string().max(2000).optional().nullable(),
   link: z.string().trim().max(500).optional().nullable(),
 });
+
+export const planUpdateSchema = planInputSchema;
+
+export const exerciseCategoryInputSchema = z.object({
+  name: z.string().trim().min(1, "Category name is required").max(60),
+});
+
+export const exercisePresetInputSchema = z.object({
+  name: z.string().trim().min(1, "Exercise name is required").max(200),
+  categoryId: z.string().trim().min(1, "Category is required"),
+});
