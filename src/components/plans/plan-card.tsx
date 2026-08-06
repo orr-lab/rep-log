@@ -71,19 +71,9 @@ export function PlanCard({
   return (
     <div className="space-y-2 rounded-lg border border-border/70 bg-card p-3">
       <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className={cn("text-sm font-medium leading-tight", compact && "truncate")}>
-            {plan.exerciseName}
-          </p>
-          <p className={cn("text-xs text-muted-foreground", compact && "truncate")}>
-            {isClimb
-              ? formatGrade(plan.grade as number)
-              : plan.weight != null
-                ? `${plan.weight} lb/kg`
-                : "Bodyweight"}
-            {plan.sets != null && plan.reps != null ? ` · ${plan.sets}x${plan.reps}` : ""}
-          </p>
-        </div>
+        <p className={cn("min-w-0 text-sm font-medium leading-tight", compact && "truncate")}>
+          {plan.exerciseName}
+        </p>
         {isFulfilled ? (
           <Badge variant="secondary" className="shrink-0 gap-1">
             <CheckCircle2 className="size-3.5" /> Done
@@ -94,6 +84,21 @@ export function PlanCard({
           </Badge>
         )}
       </div>
+
+      {/* Its own row, deliberately outside the flex row above -- sharing that row with the status
+          badge left it squeezed down to a couple of characters on the narrow desktop day-strip
+          columns (7 across), which is exactly the info someone glancing at the calendar needs.
+          Pulled back up against the name via -mt to stay a tight title/subtitle pair despite no
+          longer being nested in the same div (the parent's space-y-2 would otherwise push it as
+          far from the name as from the next unrelated section). */}
+      <p className={cn("-mt-1.5 text-xs text-muted-foreground", compact && "truncate")}>
+        {isClimb
+          ? formatGrade(plan.grade as number)
+          : plan.weight != null
+            ? `${plan.weight} lb/kg`
+            : "Bodyweight"}
+        {plan.sets != null && plan.reps != null ? ` · ${plan.sets}x${plan.reps}` : ""}
+      </p>
 
       {plan.notes && (
         <p
