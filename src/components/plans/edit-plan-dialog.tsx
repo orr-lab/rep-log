@@ -119,7 +119,11 @@ export function EditPlanDialog({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger
         aria-label="Edit plan"
-        className={buttonVariants({ variant: "ghost", size: "icon-sm" })}
+        className={buttonVariants({
+          variant: "ghost",
+          size: "icon-sm",
+          className: "hover:border-border hover:bg-muted",
+        })}
       >
         <Pencil className="size-3.5" />
       </DialogTrigger>

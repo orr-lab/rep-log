@@ -117,7 +117,7 @@ export function PlanCard({
         </a>
       )}
 
-      <div className="flex items-center justify-between gap-2 pt-1">
+      <div className="flex items-center pt-1">
         {isFulfilled ? (
           <Link
             href={`/entries/${plan.fulfilledEntryId}`}
@@ -135,46 +135,49 @@ export function PlanCard({
         ) : (
           <span />
         )}
-
-        {canModify && (
-          <div className="flex items-center gap-1">
-            <EditPlanDialog
-              plan={plan}
-              climbingMode={climbingMode}
-              categories={categories}
-              onUpdated={onUpdated}
-            />
-            <AlertDialog>
-              <AlertDialogTrigger
-                aria-label="Delete plan"
-                className={buttonVariants({
-                  variant: "ghost",
-                  size: "icon-sm",
-                  className: "text-destructive hover:text-destructive",
-                })}
-              >
-                {deleting ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Remove this plan?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    This only removes the plan, not any logged entry it points to. This can&apos;t be
-                    undone.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction onClick={handleDelete} disabled={deleting}>
-                    {deleting && <Loader2 className="size-4 animate-spin" />}
-                    Remove
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          </div>
-        )}
       </div>
+
+      {canModify && (
+        // A second row, not sharing space with "Log this" above -- the day-strip columns on
+        // desktop are narrow enough (7 across) that Log this + edit + delete side by side would
+        // overflow the card's border instead of wrapping.
+        <div className="flex items-center justify-end gap-1">
+          <EditPlanDialog
+            plan={plan}
+            climbingMode={climbingMode}
+            categories={categories}
+            onUpdated={onUpdated}
+          />
+          <AlertDialog>
+            <AlertDialogTrigger
+              aria-label="Delete plan"
+              className={buttonVariants({
+                variant: "ghost",
+                size: "icon-sm",
+                className: "text-destructive hover:border-destructive/30 hover:bg-destructive/10 hover:text-destructive",
+              })}
+            >
+              {deleting ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Remove this plan?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This only removes the plan, not any logged entry it points to. This can&apos;t be
+                  undone.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={handleDelete} disabled={deleting}>
+                  {deleting && <Loader2 className="size-4 animate-spin" />}
+                  Remove
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </div>
+      )}
     </div>
   );
 }
