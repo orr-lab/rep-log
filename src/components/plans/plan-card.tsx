@@ -101,10 +101,15 @@ export function PlanCard({
         </p>
       </div>
 
-      {/* Skipped in compact view -- clamped to 2 lines it usually just cuts off mid-sentence, and
-          the full text is one click away in the day dialog anyway. */}
-      {plan.notes && !compact && (
-        <p className="whitespace-pre-wrap text-xs text-muted-foreground">{plan.notes}</p>
+      {plan.notes && (
+        <p
+          className={cn(
+            "whitespace-pre-wrap text-xs text-muted-foreground",
+            compact && "line-clamp-2"
+          )}
+        >
+          {plan.notes}
+        </p>
       )}
 
       {plan.link && (
