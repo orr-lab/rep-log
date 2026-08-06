@@ -68,37 +68,38 @@ export function PlanCard({
     }
   }
 
+  // Redundant in compact view -- every card in the day-strip is "Planned" by default, so calling
+  // that out on every single card is just noise (and steals width from the name). Only the states
+  // that actually differ from the default are worth a badge there.
+  const showBadge = !compact || isFulfilled || plan.createdByRole === "visitor";
+  const badge = isFulfilled ? (
+    <Badge variant="secondary" className="shrink-0 gap-1">
+      <CheckCircle2 className="size-3.5" /> Done
+    </Badge>
+  ) : (
+    <Badge variant="outline" className="shrink-0">
+      {plan.createdByRole === "visitor" ? "Visitor" : "Planned"}
+    </Badge>
+  );
+
   return (
     <div className="space-y-2 rounded-lg border border-border/70 bg-card p-3">
-      <div className="flex items-start justify-between gap-2">
-        <p className={cn("min-w-0 text-sm font-medium leading-tight", compact && "truncate")}>
+      <div className="space-y-1">
+        {showBadge && <div className="flex justify-end">{badge}</div>}
+
+        <p className={cn("text-sm font-medium leading-tight", compact && "truncate")}>
           {plan.exerciseName}
         </p>
-        {isFulfilled ? (
-          <Badge variant="secondary" className="shrink-0 gap-1">
-            <CheckCircle2 className="size-3.5" /> Done
-          </Badge>
-        ) : (
-          <Badge variant="outline" className="shrink-0">
-            {plan.createdByRole === "visitor" ? "Visitor" : "Planned"}
-          </Badge>
-        )}
-      </div>
 
-      {/* Its own row, deliberately outside the flex row above -- sharing that row with the status
-          badge left it squeezed down to a couple of characters on the narrow desktop day-strip
-          columns (7 across), which is exactly the info someone glancing at the calendar needs.
-          Pulled back up against the name via -mt to stay a tight title/subtitle pair despite no
-          longer being nested in the same div (the parent's space-y-2 would otherwise push it as
-          far from the name as from the next unrelated section). */}
-      <p className={cn("-mt-1.5 text-xs text-muted-foreground", compact && "truncate")}>
-        {isClimb
-          ? formatGrade(plan.grade as number)
-          : plan.weight != null
-            ? `${plan.weight} lb/kg`
-            : "Bodyweight"}
-        {plan.sets != null && plan.reps != null ? ` · ${plan.sets}x${plan.reps}` : ""}
-      </p>
+        <p className={cn("text-xs text-muted-foreground", compact && "truncate")}>
+          {isClimb
+            ? formatGrade(plan.grade as number)
+            : plan.weight != null
+              ? `${plan.weight} lb/kg`
+              : "Bodyweight"}
+          {plan.sets != null && plan.reps != null ? ` · ${plan.sets}x${plan.reps}` : ""}
+        </p>
+      </div>
 
       {plan.notes && (
         <p
@@ -122,67 +123,69 @@ export function PlanCard({
         </a>
       )}
 
-      <div className="flex items-center pt-1">
-        {isFulfilled ? (
-          <Link
-            href={`/entries/${plan.fulfilledEntryId}`}
-            className={buttonVariants({ variant: "ghost", size: "sm" })}
-          >
-            View entry
-          </Link>
-        ) : role === "owner" ? (
-          <Link
-            href={`/new?planId=${plan.id}`}
-            className={buttonVariants({ variant: "secondary", size: "sm" })}
-          >
-            <Plus className="size-3.5" /> Log this
-          </Link>
-        ) : (
-          <span />
+      <div className="space-y-1.5 border-t border-border/70 pt-2">
+        <div className="flex items-center">
+          {isFulfilled ? (
+            <Link
+              href={`/entries/${plan.fulfilledEntryId}`}
+              className={buttonVariants({ variant: "ghost", size: "sm" })}
+            >
+              View entry
+            </Link>
+          ) : role === "owner" ? (
+            <Link
+              href={`/new?planId=${plan.id}`}
+              className={buttonVariants({ variant: "secondary", size: "sm" })}
+            >
+              <Plus className="size-3.5" /> Log this
+            </Link>
+          ) : (
+            <span />
+          )}
+        </div>
+
+        {canModify && (
+          // Not sharing a row with "Log this" above -- the day-strip columns on desktop are
+          // narrow enough (7 across) that Log this + edit + delete side by side would overflow
+          // the card's border instead of wrapping.
+          <div className="flex items-center justify-end gap-1">
+            <EditPlanDialog
+              plan={plan}
+              climbingMode={climbingMode}
+              categories={categories}
+              onUpdated={onUpdated}
+            />
+            <AlertDialog>
+              <AlertDialogTrigger
+                aria-label="Delete plan"
+                className={buttonVariants({
+                  variant: "ghost",
+                  size: "icon-sm",
+                  className: "text-destructive hover:border-destructive/30 hover:bg-destructive/10 hover:text-destructive",
+                })}
+              >
+                {deleting ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Remove this plan?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This only removes the plan, not any logged entry it points to. This can&apos;t be
+                    undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleDelete} disabled={deleting}>
+                    {deleting && <Loader2 className="size-4 animate-spin" />}
+                    Remove
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </div>
         )}
       </div>
-
-      {canModify && (
-        // A second row, not sharing space with "Log this" above -- the day-strip columns on
-        // desktop are narrow enough (7 across) that Log this + edit + delete side by side would
-        // overflow the card's border instead of wrapping.
-        <div className="flex items-center justify-end gap-1">
-          <EditPlanDialog
-            plan={plan}
-            climbingMode={climbingMode}
-            categories={categories}
-            onUpdated={onUpdated}
-          />
-          <AlertDialog>
-            <AlertDialogTrigger
-              aria-label="Delete plan"
-              className={buttonVariants({
-                variant: "ghost",
-                size: "icon-sm",
-                className: "text-destructive hover:border-destructive/30 hover:bg-destructive/10 hover:text-destructive",
-              })}
-            >
-              {deleting ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Remove this plan?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  This only removes the plan, not any logged entry it points to. This can&apos;t be
-                  undone.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction onClick={handleDelete} disabled={deleting}>
-                  {deleting && <Loader2 className="size-4 animate-spin" />}
-                  Remove
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        </div>
-      )}
     </div>
   );
 }
