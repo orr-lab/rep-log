@@ -6,7 +6,24 @@ import { Loader2, Plus, Trash2, ChevronDown, ChevronRight } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -18,17 +35,47 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import type { ExerciseCategory } from "@/lib/types";
+import { GRADE_OPTIONS, formatGrade } from "@/lib/climbing";
+import type { ExerciseCategory, ExercisePreset } from "@/lib/types";
 
-function AddPresetRow({
+/** Summarizes a preset's stored details (if any) the same way PlanCard summarizes a plan --
+ *  so it's clear at a glance which presets have everything set ahead of time vs. just a name. */
+function presetSummary(preset: ExercisePreset, climbingMode: boolean): string | null {
+  const parts: string[] = [];
+  if (climbingMode && preset.grade != null) parts.push(formatGrade(preset.grade));
+  if (!climbingMode && preset.weight != null) parts.push(`${preset.weight} lb/kg`);
+  if (preset.sets != null && preset.reps != null) parts.push(`${preset.sets}x${preset.reps}`);
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
+function AddPresetDialog({
   categoryId,
+  climbingMode,
   onAdded,
 }: {
   categoryId: string;
-  onAdded: (categoryId: string, preset: { id: string; name: string; categoryId: string; createdAt: string }) => void;
+  climbingMode: boolean;
+  onAdded: (categoryId: string, preset: ExercisePreset) => void;
 }) {
+  const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
+  const [weight, setWeight] = useState("");
+  const [grade, setGrade] = useState("");
+  const [sets, setSets] = useState("");
+  const [reps, setReps] = useState("");
+  const [notes, setNotes] = useState("");
+  const [link, setLink] = useState("");
   const [submitting, setSubmitting] = useState(false);
+
+  function reset() {
+    setName("");
+    setWeight("");
+    setGrade("");
+    setSets("");
+    setReps("");
+    setNotes("");
+    setLink("");
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -38,7 +85,16 @@ function AddPresetRow({
       const res = await fetch("/api/exercise-presets", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim(), categoryId }),
+        body: JSON.stringify({
+          name: name.trim(),
+          categoryId,
+          weight: !climbingMode && weight ? Number(weight) : null,
+          grade: climbingMode && grade !== "" ? Number(grade) : null,
+          sets: sets ? Number(sets) : null,
+          reps: reps ? Number(reps) : null,
+          notes: notes.trim() || null,
+          link: link.trim() || null,
+        }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => null);
@@ -46,7 +102,8 @@ function AddPresetRow({
       }
       const created = await res.json();
       onAdded(categoryId, created);
-      setName("");
+      reset();
+      setOpen(false);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Something went wrong.");
     } finally {
@@ -55,24 +112,134 @@ function AddPresetRow({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="flex items-center gap-2">
-      <Input
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        placeholder="e.g. Overhang project"
-        className="h-7 flex-1 text-xs"
-      />
-      <Button type="submit" size="icon-sm" variant="ghost" disabled={submitting || !name.trim()}>
-        {submitting ? <Loader2 className="size-3.5 animate-spin" /> : <Plus className="size-3.5" />}
-      </Button>
-    </form>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) reset();
+      }}
+    >
+      <DialogTrigger
+        aria-label="Add exercise preset"
+        className={buttonVariants({ variant: "ghost", size: "sm", className: "w-full" })}
+      >
+        <Plus className="size-3.5" /> Add exercise
+      </DialogTrigger>
+      <DialogContent className="max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Add {climbingMode ? "route" : "exercise"} preset</DialogTitle>
+          <DialogDescription>
+            Set everything ahead of time -- picking this preset later fills it all in at once, and
+            it can still be tweaked for that one plan or entry.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="preset-name">{climbingMode ? "Route / problem" : "Exercise"}</Label>
+            <Input
+              id="preset-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder={climbingMode ? "e.g. Blue arête" : "Barbell Squat"}
+              required
+            />
+          </div>
+
+          {climbingMode ? (
+            <div className="space-y-2">
+              <Label htmlFor="preset-grade">Grade (optional)</Label>
+              <Select value={grade} onValueChange={(v) => v && setGrade(v)}>
+                <SelectTrigger id="preset-grade" className="w-full">
+                  <SelectValue placeholder="Select a grade" />
+                </SelectTrigger>
+                <SelectContent>
+                  {GRADE_OPTIONS.map((g) => (
+                    <SelectItem key={g} value={String(g)}>
+                      {formatGrade(g)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <Label htmlFor="preset-weight">Weight (optional)</Label>
+              <Input
+                id="preset-weight"
+                type="number"
+                min={0}
+                step="0.5"
+                value={weight}
+                onChange={(e) => setWeight(e.target.value)}
+                placeholder="e.g. 135"
+              />
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-2">
+              <Label htmlFor="preset-sets">{climbingMode ? "Attempts" : "Sets"}</Label>
+              <Input
+                id="preset-sets"
+                type="number"
+                min={1}
+                value={sets}
+                onChange={(e) => setSets(e.target.value)}
+                placeholder="e.g. 3"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="preset-reps">{climbingMode ? "Sets" : "Reps"}</Label>
+              <Input
+                id="preset-reps"
+                type="number"
+                min={1}
+                value={reps}
+                onChange={(e) => setReps(e.target.value)}
+                placeholder="e.g. 5"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="preset-notes">Notes</Label>
+            <Textarea
+              id="preset-notes"
+              rows={2}
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Anything they should know before doing this"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="preset-link">Link</Label>
+            <Input
+              id="preset-link"
+              value={link}
+              onChange={(e) => setLink(e.target.value)}
+              placeholder="https://… (beta video, reference, etc.)"
+            />
+          </div>
+
+          <DialogFooter>
+            <Button type="submit" disabled={submitting || !name.trim()}>
+              {submitting && <Loader2 className="size-4 animate-spin" />}
+              Add exercise
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 
 export function ExercisePresetsPanel({
   initialCategories,
+  climbingMode,
 }: {
   initialCategories: ExerciseCategory[];
+  climbingMode: boolean;
 }) {
   const [categories, setCategories] = useState(initialCategories);
   const [expanded, setExpanded] = useState<Set<string>>(new Set(initialCategories.map((c) => c.id)));
@@ -140,10 +307,7 @@ export function ExercisePresetsPanel({
     }
   }
 
-  function handlePresetAdded(
-    categoryId: string,
-    preset: { id: string; name: string; categoryId: string; createdAt: string }
-  ) {
+  function handlePresetAdded(categoryId: string, preset: ExercisePreset) {
     setCategories((prev) =>
       prev.map((c) =>
         c.id === categoryId
@@ -217,23 +381,35 @@ export function ExercisePresetsPanel({
 
                 {isOpen && (
                   <div className="space-y-1.5 border-t p-2">
-                    {category.presets.map((preset) => (
-                      <div
-                        key={preset.id}
-                        className="flex items-center justify-between gap-2 rounded-md px-1.5 py-1 text-sm hover:bg-muted/50"
-                      >
-                        <span>{preset.name}</span>
-                        <button
-                          type="button"
-                          aria-label={`Remove ${preset.name}`}
-                          onClick={() => handleDeletePreset(category.id, preset.id)}
-                          className="text-muted-foreground hover:text-destructive"
+                    {category.presets.map((preset) => {
+                      const summary = presetSummary(preset, climbingMode);
+                      return (
+                        <div
+                          key={preset.id}
+                          className="flex items-center justify-between gap-2 rounded-md px-1.5 py-1 text-sm hover:bg-muted/50"
                         >
-                          <Trash2 className="size-3" />
-                        </button>
-                      </div>
-                    ))}
-                    <AddPresetRow categoryId={category.id} onAdded={handlePresetAdded} />
+                          <div className="min-w-0">
+                            <p className="truncate">{preset.name}</p>
+                            {summary && (
+                              <p className="truncate text-xs text-muted-foreground">{summary}</p>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            aria-label={`Remove ${preset.name}`}
+                            onClick={() => handleDeletePreset(category.id, preset.id)}
+                            className="shrink-0 text-muted-foreground hover:text-destructive"
+                          >
+                            <Trash2 className="size-3" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                    <AddPresetDialog
+                      categoryId={category.id}
+                      climbingMode={climbingMode}
+                      onAdded={handlePresetAdded}
+                    />
                   </div>
                 )}
               </div>

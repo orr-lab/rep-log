@@ -132,12 +132,20 @@ model ExerciseCategory {
   @@index([userId])
 }
 
-// A single reusable exercise/route name within a category, e.g. "Overhang problems" ->
-// "Blue arête". Just a name -- weight/grade/sets/reps are still chosen per plan or per entry,
-// since those vary session to session even for the same named exercise.
+// A single reusable exercise/route within a category, e.g. "Overhang problems" -> "Blue arête" --
+// with all the details (grade/weight, sets, reps, notes, a reference link) set ahead of time by
+// the owner, so picking one from the dropdown (in AddPlanDialog or the entry form) fills in
+// everything at once instead of just the name. Every field stays freely editable after picking,
+// for that one specific plan/entry, without changing the preset's own stored defaults.
 model ExercisePreset {
   id        String   @id @default(cuid())
   name      String
+  weight    Float?
+  grade     Int?
+  sets      Int?
+  reps      Int?
+  notes     String?
+  link      String?
   createdAt DateTime @default(now())
 
   categoryId String

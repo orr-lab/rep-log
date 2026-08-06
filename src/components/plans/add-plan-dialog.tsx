@@ -26,7 +26,8 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { GRADE_OPTIONS, formatGrade } from "@/lib/climbing";
-import type { ExerciseCategory, WorkoutPlan } from "@/lib/types";
+import { findExercisePreset } from "@/lib/types";
+import type { ExerciseCategory, ExercisePreset, WorkoutPlan } from "@/lib/types";
 
 interface PlanItemDraft {
   exerciseName: string;
@@ -48,13 +49,19 @@ function PresetPicker({
   climbingMode,
 }: {
   categories: ExerciseCategory[];
-  onPick: (name: string) => void;
+  onPick: (preset: ExercisePreset) => void;
   climbingMode: boolean;
 }) {
   if (categories.every((c) => c.presets.length === 0)) return null;
 
   return (
-    <Select value="" onValueChange={(v) => v && onPick(v)}>
+    <Select
+      value=""
+      onValueChange={(id) => {
+        const preset = id && findExercisePreset(categories, id);
+        if (preset) onPick(preset);
+      }}
+    >
       <SelectTrigger className="w-full">
         <SelectValue
           placeholder={climbingMode ? "Choose a preset route…" : "Choose a preset exercise…"}
@@ -67,7 +74,7 @@ function PresetPicker({
             <SelectGroup key={category.id}>
               <SelectLabel>{category.name}</SelectLabel>
               {category.presets.map((preset) => (
-                <SelectItem key={preset.id} value={preset.name}>
+                <SelectItem key={preset.id} value={preset.id}>
                   {preset.name}
                 </SelectItem>
               ))}
@@ -234,7 +241,17 @@ export function AddPlanDialog({
                 <PresetPicker
                   categories={categories}
                   climbingMode={climbingMode}
-                  onPick={(name) => updateItem(index, { exerciseName: name })}
+                  onPick={(preset) =>
+                    updateItem(index, {
+                      exerciseName: preset.name,
+                      weight: preset.weight != null ? String(preset.weight) : "",
+                      grade: preset.grade != null ? String(preset.grade) : "",
+                      sets: preset.sets != null ? String(preset.sets) : "",
+                      reps: preset.reps != null ? String(preset.reps) : "",
+                      notes: preset.notes ?? "",
+                      link: preset.link ?? "",
+                    })
+                  }
                 />
                 <Label htmlFor={`plan-exercise-${index}`}>
                   {climbingMode ? "Route / problem" : "Exercise"}

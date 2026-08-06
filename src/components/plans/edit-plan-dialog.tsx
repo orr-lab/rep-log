@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/dialog";
 import { GRADE_OPTIONS, formatGrade } from "@/lib/climbing";
 import { planDayKey } from "@/lib/plans";
+import { findExercisePreset } from "@/lib/types";
 import type { ExerciseCategory, WorkoutPlan } from "@/lib/types";
 
 export function EditPlanDialog({
@@ -146,7 +147,20 @@ export function EditPlanDialog({
 
           <div className="space-y-2">
             {hasPresets && (
-              <Select value="" onValueChange={(v) => v && setExerciseName(v)}>
+              <Select
+                value=""
+                onValueChange={(id) => {
+                  const preset = id && findExercisePreset(categories, id);
+                  if (!preset) return;
+                  setExerciseName(preset.name);
+                  setWeight(preset.weight != null ? String(preset.weight) : "");
+                  setGrade(preset.grade != null ? String(preset.grade) : "");
+                  setSets(preset.sets != null ? String(preset.sets) : "");
+                  setReps(preset.reps != null ? String(preset.reps) : "");
+                  setNotes(preset.notes ?? "");
+                  setLink(preset.link ?? "");
+                }}
+              >
                 <SelectTrigger className="w-full">
                   <SelectValue
                     placeholder={climbingMode ? "Choose a preset route…" : "Choose a preset exercise…"}
@@ -159,7 +173,7 @@ export function EditPlanDialog({
                       <SelectGroup key={category.id}>
                         <SelectLabel>{category.name}</SelectLabel>
                         {category.presets.map((preset) => (
-                          <SelectItem key={preset.id} value={preset.name}>
+                          <SelectItem key={preset.id} value={preset.id}>
                             {preset.name}
                           </SelectItem>
                         ))}

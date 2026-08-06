@@ -138,4 +138,10 @@ export const exerciseCategoryInputSchema = z.object({
 export const exercisePresetInputSchema = z.object({
   name: z.string().trim().min(1, "Exercise name is required").max(200),
   categoryId: z.string().trim().min(1, "Category is required"),
+  weight: z.number().positive().optional().nullable(),
+  grade: z.number().int().min(0).max(17).optional().nullable(),
+  sets: z.number().int().positive().optional().nullable(),
+  reps: z.number().int().positive().optional().nullable(),
+  notes: z.string().max(2000).optional().nullable(),
+  link: z.string().trim().max(500).optional().nullable(),
 });

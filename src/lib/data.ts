@@ -43,6 +43,12 @@ export async function getExerciseCategories(userId: string): Promise<ExerciseCat
     presets: r.presets.map((p) => ({
       id: p.id,
       name: p.name,
+      weight: p.weight,
+      grade: p.grade,
+      sets: p.sets,
+      reps: p.reps,
+      notes: p.notes,
+      link: p.link,
       categoryId: p.categoryId,
       createdAt: p.createdAt.toISOString(),
     })),

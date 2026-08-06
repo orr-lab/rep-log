@@ -71,6 +71,12 @@ export interface WorkoutPlan {
 export interface ExercisePreset {
   id: string;
   name: string;
+  weight: number | null;
+  grade: number | null;
+  sets: number | null;
+  reps: number | null;
+  notes: string | null;
+  link: string | null;
   categoryId: string;
   createdAt: string;
 }
@@ -80,4 +86,15 @@ export interface ExerciseCategory {
   name: string;
   createdAt: string;
   presets: ExercisePreset[];
+}
+
+export function findExercisePreset(
+  categories: ExerciseCategory[],
+  presetId: string
+): ExercisePreset | undefined {
+  for (const category of categories) {
+    const preset = category.presets.find((p) => p.id === presetId);
+    if (preset) return preset;
+  }
+  return undefined;
 }

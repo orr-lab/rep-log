@@ -24,7 +24,17 @@ export async function POST(request: NextRequest) {
 
   try {
     const preset = await prisma.exercisePreset.create({
-      data: { name: parsed.data.name, categoryId: category.id, userId: session.userId },
+      data: {
+        name: parsed.data.name,
+        weight: parsed.data.weight ?? null,
+        grade: parsed.data.grade ?? null,
+        sets: parsed.data.sets ?? null,
+        reps: parsed.data.reps ?? null,
+        notes: parsed.data.notes ?? null,
+        link: parsed.data.link ?? null,
+        categoryId: category.id,
+        userId: session.userId,
+      },
     });
     return NextResponse.json(preset, { status: 201 });
   } catch (err) {

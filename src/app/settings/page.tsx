@@ -74,7 +74,10 @@ export default async function SettingsPage() {
 
       <section className="space-y-4">
         <h2 className="text-lg font-semibold">Exercise presets</h2>
-        <ExercisePresetsPanel initialCategories={exerciseCategories} />
+        <ExercisePresetsPanel
+          initialCategories={exerciseCategories}
+          climbingMode={me.climbingMode}
+        />
       </section>
 
       {session.isAdmin && (
