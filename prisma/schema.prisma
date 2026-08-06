@@ -20,6 +20,14 @@ model User {
   visitorPasswordHash   String?
   publicProfileEnabled  Boolean        @default(false)
   videoUploadsEnabled   Boolean        @default(true)
+  // App-wide, admin-only, same pattern as videoUploadsEnabled -- read from the admin's row
+  // regardless of which account is uploading (see getMaxUploadBytes() in src/lib/users.ts).
+  // Stored in MB rather than bytes so the admin-facing input is a plain, human-sized number.
+  // This is a ceiling on the *raw* file a phone camera might produce, not the storage/transfer
+  // budget -- the video is compressed client-side before it ever reaches Blob storage (see
+  // src/lib/video-compress.ts) -- so it can reasonably be set well above what a personal Blob
+  // plan would want to store long-term.
+  maxUploadMB           Int            @default(2048)
   // Personal preference, not admin-gated -- like visitorPasswordHash, each account controls its
   // own. Switches that account's whole logging experience (fields, records, grouping) to
   // climbing vocabulary. Read live on every page, never cached in the session cookie, so toggling

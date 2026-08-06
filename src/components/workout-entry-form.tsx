@@ -26,7 +26,7 @@ import { ExertionPicker } from "@/components/exertion-picker";
 import { AutocompleteInput } from "@/components/autocomplete-input";
 import { extractYouTubeId, youtubeEmbedUrl } from "@/lib/youtube";
 import { extractVideoCreationDate } from "@/lib/video-metadata";
-import { MAX_UPLOAD_BYTES } from "@/lib/validation";
+import { compressVideo } from "@/lib/video-compress";
 import { COMMON_EXERCISES, COMMON_TAGS } from "@/lib/exercise-catalog";
 import { GRADE_OPTIONS, formatGrade, COMMON_CLIMBING_TAGS } from "@/lib/climbing";
 import type { WorkoutEntry, VideoSource } from "@/lib/types";
@@ -40,6 +40,12 @@ function formatDuration(totalSeconds: number) {
   const m = Math.floor(totalSeconds / 60);
   const s = totalSeconds % 60;
   return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+function formatMaxSize(bytes: number) {
+  const gb = bytes / (1024 * 1024 * 1024);
+  if (gb >= 1) return `${gb % 1 === 0 ? gb : gb.toFixed(1)}GB`;
+  return `${Math.round(bytes / (1024 * 1024))}MB`;
 }
 
 export interface PlanPrefill {
@@ -57,6 +63,7 @@ export function WorkoutEntryForm({
   initialData,
   userId,
   uploadsEnabled,
+  maxUploadBytes,
   climbingMode,
   fromPlan,
 }: {
@@ -64,6 +71,8 @@ export function WorkoutEntryForm({
   initialData?: WorkoutEntry;
   userId: string;
   uploadsEnabled: boolean;
+  /** Admin-configurable raw-upload ceiling (see Settings > Storage), in bytes. */
+  maxUploadBytes: number;
   climbingMode: boolean;
   /** Pre-fills the form from a planned workout (see /plan) and links the saved entry back to it. */
   fromPlan?: PlanPrefill;
@@ -104,6 +113,8 @@ export function WorkoutEntryForm({
   const [replacingVideo, setReplacingVideo] = useState(mode === "create");
 
   const [filePreview, setFilePreview] = useState<string | null>(null);
+  const [compressing, setCompressing] = useState(false);
+  const [compressionProgress, setCompressionProgress] = useState(0);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [videoError, setVideoError] = useState<string | null>(null);
@@ -158,9 +169,9 @@ export function WorkoutEntryForm({
       setVideoError("Please choose a video file.");
       return;
     }
-    if (file.size > MAX_UPLOAD_BYTES) {
+    if (file.size > maxUploadBytes) {
       setVideoError(
-        "That file is over 100MB. Try compressing it, or paste a YouTube link instead to stay within free storage limits."
+        `That file is over ${formatMaxSize(maxUploadBytes)}. Try trimming it, or paste a YouTube link instead.`
       );
       return;
     }
@@ -179,10 +190,29 @@ export function WorkoutEntryForm({
       });
     }
 
+    let uploadFile = file;
+    setCompressing(true);
+    setCompressionProgress(0);
+    try {
+      const result = await compressVideo(file, (ratio) => setCompressionProgress(ratio * 100));
+      // Only keep the compressed version if it's actually smaller -- an already-efficient
+      // source file can occasionally come out larger after a lossy re-encode, and there's no
+      // point uploading a bigger "compressed" file.
+      if (result.compressedBytes < result.originalBytes) {
+        uploadFile = result.file;
+      }
+    } catch (err) {
+      // Compression is a nice-to-have, not a requirement -- fall back to the original file
+      // rather than blocking the user from logging their set.
+      console.error("Video compression failed, uploading the original file instead:", err);
+    } finally {
+      setCompressing(false);
+    }
+
     setUploading(true);
     setUploadProgress(0);
     try {
-      const result = await upload(`${userId}/${file.name}`, file, {
+      const result = await upload(`${userId}/${uploadFile.name}`, uploadFile, {
         access: "public",
         handleUploadUrl: "/api/blob/upload",
         onUploadProgress: ({ percentage }) => setUploadProgress(percentage),
@@ -194,13 +224,13 @@ export function WorkoutEntryForm({
     } finally {
       setUploading(false);
     }
-  }, [userId, mode]);
+  }, [userId, mode, maxUploadBytes]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     accept: { "video/*": [] },
     multiple: false,
-    disabled: uploading,
+    disabled: uploading || compressing,
   });
 
   function handleVideoMetadataLoaded() {
@@ -384,7 +414,8 @@ export function WorkoutEntryForm({
                     <UploadCloud className="size-8 text-muted-foreground" />
                     <p className="text-sm font-medium">Drag & drop your video, or click to browse</p>
                     <p className="text-xs text-muted-foreground">
-                      MP4, MOV, or WebM up to 100MB. For longer sessions, paste a YouTube link instead.
+                      MP4, MOV, or WebM up to {formatMaxSize(maxUploadBytes)} — compressed
+                      automatically before upload.
                     </p>
                   </div>
                 ) : (
@@ -398,6 +429,19 @@ export function WorkoutEntryForm({
                         className="max-h-80 w-full"
                       />
                     </div>
+                    {compressing && (
+                      <div className="space-y-1">
+                        <div className="h-2 w-full overflow-hidden rounded-full bg-secondary">
+                          <div
+                            className="h-full rounded-full bg-primary transition-all"
+                            style={{ width: `${compressionProgress}%` }}
+                          />
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          Compressing… {Math.round(compressionProgress)}%
+                        </p>
+                      </div>
+                    )}
                     {uploading && (
                       <div className="space-y-1">
                         <div className="h-2 w-full overflow-hidden rounded-full bg-secondary">
@@ -620,7 +664,7 @@ export function WorkoutEntryForm({
         <Button type="button" variant="ghost" onClick={() => router.back()}>
           Cancel
         </Button>
-        <Button type="submit" disabled={!canSubmit || submitting || uploading}>
+        <Button type="submit" disabled={!canSubmit || submitting || uploading || compressing}>
           {submitting && <Loader2 className="size-4 animate-spin" />}
           {mode === "create" ? "Save entry" : "Save changes"}
         </Button>

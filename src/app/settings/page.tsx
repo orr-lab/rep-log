@@ -8,6 +8,7 @@ import { VisitorPasswordForm } from "@/components/settings/visitor-password-form
 import { UserManagementPanel } from "@/components/settings/user-management-panel";
 import { PublicProfileToggle } from "@/components/settings/public-profile-toggle";
 import { VideoUploadToggle } from "@/components/settings/video-upload-toggle";
+import { MaxUploadSizeInput } from "@/components/settings/max-upload-size-input";
 import { ClimbingModeToggle } from "@/components/settings/climbing-mode-toggle";
 
 export const dynamic = "force-dynamic";
@@ -24,6 +25,7 @@ export default async function SettingsPage() {
       visitorPasswordHash: true,
       publicProfileEnabled: true,
       videoUploadsEnabled: true,
+      maxUploadMB: true,
       climbingMode: true,
     },
   });
@@ -80,6 +82,7 @@ export default async function SettingsPage() {
         <section className="space-y-4">
           <h2 className="text-lg font-semibold">Storage</h2>
           <VideoUploadToggle initialEnabled={me.videoUploadsEnabled} />
+          <MaxUploadSizeInput initialMaxUploadMB={me.maxUploadMB} />
         </section>
       )}
 

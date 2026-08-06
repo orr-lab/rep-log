@@ -2,7 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { SESSION_COOKIE, verifySessionCookie } from "@/lib/auth";
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|icon.svg).*)"],
+  // ffmpeg/* is the client-side video compressor's static WASM/JS core (see
+  // src/lib/video-compress.ts) -- a plain public asset like favicon.ico/icon.svg, not a page or
+  // API route, so it needs the same exclusion or it gets redirected to /login like any other
+  // unauthenticated request to a protected path.
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|icon.svg|ffmpeg/).*)"],
 };
 
 const OWNER_ONLY_PAGE_PATTERNS = [

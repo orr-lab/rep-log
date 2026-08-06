@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { ExternalLink } from "lucide-react";
 import { WorkoutEntryForm } from "@/components/workout-entry-form";
 import { getSession } from "@/lib/session";
-import { isVideoUploadEnabled, isClimbingModeEnabled } from "@/lib/users";
+import { isVideoUploadEnabled, isClimbingModeEnabled, getMaxUploadBytes } from "@/lib/users";
 import { prisma } from "@/lib/prisma";
 import { formatGrade } from "@/lib/climbing";
 
@@ -16,8 +16,9 @@ export default async function NewEntryPage({
 
   const { planId } = await searchParams;
 
-  const [uploadsEnabled, climbingMode, plan] = await Promise.all([
+  const [uploadsEnabled, maxUploadBytes, climbingMode, plan] = await Promise.all([
     isVideoUploadEnabled(),
+    getMaxUploadBytes(),
     isClimbingModeEnabled(session.userId),
     planId
       ? prisma.workoutPlan.findUnique({ where: { id: planId, userId: session.userId } })
@@ -61,6 +62,7 @@ export default async function NewEntryPage({
         mode="create"
         userId={session.userId}
         uploadsEnabled={uploadsEnabled}
+        maxUploadBytes={maxUploadBytes}
         climbingMode={climbingMode}
         fromPlan={
           plan

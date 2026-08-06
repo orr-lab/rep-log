@@ -26,7 +26,22 @@ export type EntryInput = z.infer<typeof entryInputSchema>;
 
 export const entryUpdateSchema = entryInputSchema.partial();
 
-export const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
+// The raw upload cap is admin-configurable (see maxUploadMB on the User model, and
+// getMaxUploadBytes()/setMaxUploadMB() in src/lib/users.ts) -- these are just the fallback
+// default and the sane bounds enforced on that setting, not the cap itself. The video is
+// compressed client-side (see src/lib/video-compress.ts) before it ever reaches Blob storage, so
+// this is a ceiling on the raw file a phone camera might produce, not the storage/transfer budget
+// itself. It also doubles as the actual Blob upload token's size limit
+// (src/app/api/blob/upload/route.ts), so it has to comfortably cover the fallback path too: if
+// compression fails for some reason, the original file is uploaded as-is rather than blocking
+// the user, and it still needs to fit under this same ceiling.
+export const DEFAULT_MAX_UPLOAD_MB = 2048;
+export const MIN_UPLOAD_MB = 10;
+export const MAX_UPLOAD_MB_CEILING = 10240;
+
+export function mbToBytes(mb: number): number {
+  return mb * 1024 * 1024;
+}
 
 // Standard complexity rule: at least 8 characters, with at least one of each character class.
 export const passwordSchema = z
@@ -74,6 +89,14 @@ export const setPublicProfileSchema = z.object({
 
 export const setVideoUploadsSchema = z.object({
   enabled: z.boolean(),
+});
+
+export const setMaxUploadSchema = z.object({
+  maxUploadMB: z
+    .number()
+    .int()
+    .min(MIN_UPLOAD_MB, `Must be at least ${MIN_UPLOAD_MB}MB.`)
+    .max(MAX_UPLOAD_MB_CEILING, `Must be ${MAX_UPLOAD_MB_CEILING}MB or less.`),
 });
 
 export const commentInputSchema = z.object({

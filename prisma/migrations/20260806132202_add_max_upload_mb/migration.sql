@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "User" ADD COLUMN     "maxUploadMB" INTEGER NOT NULL DEFAULT 2048;

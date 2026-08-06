@@ -1,7 +1,6 @@
 import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
 import { NextResponse } from "next/server";
-import { MAX_UPLOAD_BYTES } from "@/lib/validation";
-import { isVideoUploadEnabled } from "@/lib/users";
+import { isVideoUploadEnabled, getMaxUploadBytes } from "@/lib/users";
 
 export async function POST(request: Request): Promise<NextResponse> {
   if (!(await isVideoUploadEnabled())) {
@@ -12,6 +11,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
 
   const body = (await request.json()) as HandleUploadBody;
+  const maxUploadBytes = await getMaxUploadBytes();
 
   try {
     const jsonResponse = await handleUpload({
@@ -26,7 +26,7 @@ export async function POST(request: Request): Promise<NextResponse> {
             "video/x-m4v",
             "video/ogg",
           ],
-          maximumSizeInBytes: MAX_UPLOAD_BYTES,
+          maximumSizeInBytes: maxUploadBytes,
           addRandomSuffix: true,
         };
       },

@@ -1,6 +1,7 @@
 import { del } from "@vercel/blob";
 import { prisma } from "@/lib/prisma";
 import { hashPassword, verifyPassword } from "@/lib/password-hash";
+import { DEFAULT_MAX_UPLOAD_MB, mbToBytes } from "@/lib/validation";
 
 export class PasswordInUseError extends Error {
   constructor() {
@@ -180,6 +181,21 @@ export async function isVideoUploadEnabled(): Promise<boolean> {
 
 export async function setVideoUploadsEnabled(userId: string, enabled: boolean): Promise<void> {
   await prisma.user.update({ where: { id: userId }, data: { videoUploadsEnabled: enabled } });
+}
+
+/** App-wide setting, same pattern as isVideoUploadEnabled -- read from the admin's row
+ *  regardless of which account is uploading. Returns bytes, since that's what both the client
+ *  dropzone check and the Blob upload token's maximumSizeInBytes actually need. */
+export async function getMaxUploadBytes(): Promise<number> {
+  const admin = await prisma.user.findFirst({
+    where: { isAdmin: true },
+    select: { maxUploadMB: true },
+  });
+  return mbToBytes(admin?.maxUploadMB ?? DEFAULT_MAX_UPLOAD_MB);
+}
+
+export async function setMaxUploadMB(userId: string, maxUploadMB: number): Promise<void> {
+  await prisma.user.update({ where: { id: userId }, data: { maxUploadMB } });
 }
 
 /** Personal setting, unlike isVideoUploadEnabled -- each account's own row, not the admin's. */

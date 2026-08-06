@@ -400,15 +400,34 @@ requires just being signed in (owner or visitor) — they show up in the records
 `/visitor` mirror the same way logged records do — but creating or deleting one is owner-only,
 unlike comments and plans, since a visitor shouldn't be able to fabricate an account's PR history.
 
+## Video compression
+
+Uploaded videos are compressed client-side -- H.264/AAC, capped at 1080p, CRF 28 -- via
+[ffmpeg.wasm](https://github.com/ffmpegwasm/ffmpeg.wasm) before they ever reach Blob storage, in
+[src/lib/video-compress.ts](src/lib/video-compress.ts). This uses the single-threaded ffmpeg.wasm
+core specifically (self-hosted from `public/ffmpeg/`, copied from `@ffmpeg/core`'s build output)
+rather than the multi-threaded one, which needs cross-origin-isolation (COOP/COEP) response
+headers on the whole app -- not worth that risk just to embed a YouTube iframe more slowly. If
+compression fails for any reason (an unsupported format, a browser without WASM support, a bug),
+the original file uploads as-is instead of blocking the set from being logged at all.
+
+Because the video is already shrunk before it's uploaded, the raw-file cap can afford to be
+generous — 2048MB (2GB) by default, covering even a multi-minute 4K phone recording — while what
+actually lands in (and gets billed against) Blob storage stays modest. This cap is admin-only and
+app-wide, same pattern as the video-uploads toggle: `maxUploadMB` on the admin's `User` row, set
+from Settings → Storage, read via `getMaxUploadBytes()` in
+[src/lib/users.ts](src/lib/users.ts). It drives both the client-side dropzone's rejection check
+and the Blob upload token's actual `maximumSizeInBytes` (see
+[src/app/api/blob/upload/route.ts](src/app/api/blob/upload/route.ts)), so raising or lowering it
+in Settings takes effect immediately for every account, no redeploy needed — and it has to cover
+the "compression failed, uploading the original" fallback path too, not just the common case.
+
 ## Staying on the free tier
 
-- **Uploads are capped at 100MB** in the UI (`MAX_UPLOAD_BYTES` in
-  [src/lib/validation.ts](src/lib/validation.ts)), with a note recommending YouTube links
-  for longer sessions — this keeps you well under Vercel Blob's free storage allowance even
-  with dozens of sets logged. Uploads go straight from the browser to Blob storage (via
-  `@vercel/blob/client`'s `handleUpload`/token flow), bypassing Vercel's serverless function
-  body-size limit entirely, so the 100MB cap is a storage-budget choice, not a technical
-  ceiling.
+- **Uploads are compressed client-side; the raw-file cap is admin-configurable** (2048MB/2GB by
+  default) — see [Video compression](#video-compression) above. Uploads go straight from the
+  browser to Blob storage (via `@vercel/blob/client`'s `handleUpload`/token flow), bypassing
+  Vercel's serverless function body-size limit entirely.
 - **Neon's free tier** has limits on storage and active compute time; a personal training log
   with metadata-only rows (no video bytes in the database) stays tiny for a very long time.
 - Check the current Vercel Blob and Neon pricing pages before you scale this up — free-tier
@@ -431,6 +450,10 @@ unlike comments and plans, since a visitor shouldn't be able to fabricate an acc
 - `src/lib/public-scope.ts` — the single toggle-check gating the whole public visitor surface
 - `src/lib/gemini.ts`/`src/lib/ytdlp.ts`/`src/lib/youtube.ts` — AI feedback: Gemini calls,
   YouTube video download, and YouTube URL/ID parsing
+- `src/lib/video-compress.ts` — client-side ffmpeg.wasm video compression, see
+  [Video compression](#video-compression)
+- `src/lib/video-metadata.ts` — best-effort extraction of an uploaded video's recording date from
+  its MP4/MOV container metadata, used to autofill the entry form's date field
 - `src/lib/stats.ts` — streak, training-time, grouping, personal-record, and
   "last N days" calculations shared by the dashboard, stats, and records pages —
   `personalRecords()` merges logged entries with [manual records](#manual-records) and skips

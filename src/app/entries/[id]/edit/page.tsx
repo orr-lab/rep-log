@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import type { WorkoutEntry } from "@/lib/types";
 import { WorkoutEntryForm } from "@/components/workout-entry-form";
 import { getSession } from "@/lib/session";
-import { isVideoUploadEnabled, isClimbingModeEnabled } from "@/lib/users";
+import { isVideoUploadEnabled, isClimbingModeEnabled, getMaxUploadBytes } from "@/lib/users";
 
 export const dynamic = "force-dynamic";
 
@@ -21,8 +21,9 @@ export default async function EditEntryPage({
   });
   if (!row) notFound();
 
-  const [uploadsEnabled, climbingMode] = await Promise.all([
+  const [uploadsEnabled, maxUploadBytes, climbingMode] = await Promise.all([
     isVideoUploadEnabled(),
+    getMaxUploadBytes(),
     isClimbingModeEnabled(session.userId),
   ]);
 
@@ -45,6 +46,7 @@ export default async function EditEntryPage({
         initialData={entry}
         userId={session.userId}
         uploadsEnabled={uploadsEnabled}
+        maxUploadBytes={maxUploadBytes}
         climbingMode={climbingMode}
       />
     </div>
