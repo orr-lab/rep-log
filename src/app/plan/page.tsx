@@ -10,6 +10,47 @@ import type { ExerciseCategory, WorkoutPlan } from "@/lib/types";
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
+// Reopening this page soon after leaving it shouldn't feel like starting from scratch -- this
+// caches the last-fetched session/categories/plans in sessionStorage (survives navigating away
+// and back, or reloading the same tab; cleared when the tab closes) so a revisit within a few
+// minutes renders instantly from cache, while a fresh fetch still quietly runs underneath to
+// catch anything that changed (stale-while-revalidate) instead of the page starting empty every
+// single time.
+const PLAN_CACHE_KEY = "planPageCache:v1";
+const PLAN_CACHE_TTL_MS = 5 * 60 * 1000;
+
+interface PlanPageCache {
+  fetchedAt: number;
+  rangeStart: string;
+  rangeEnd: string;
+  role: Role | null;
+  climbingMode: boolean;
+  categories: ExerciseCategory[];
+  plans: WorkoutPlan[];
+}
+
+function readPlanCache(rangeStart: string, rangeEnd: string): PlanPageCache | null {
+  try {
+    const raw = sessionStorage.getItem(PLAN_CACHE_KEY);
+    if (!raw) return null;
+    const cache = JSON.parse(raw) as PlanPageCache;
+    if (cache.rangeStart !== rangeStart || cache.rangeEnd !== rangeEnd) return null;
+    if (Date.now() - cache.fetchedAt > PLAN_CACHE_TTL_MS) return null;
+    return cache;
+  } catch {
+    return null;
+  }
+}
+
+function writePlanCache(cache: PlanPageCache) {
+  try {
+    sessionStorage.setItem(PLAN_CACHE_KEY, JSON.stringify(cache));
+  } catch {
+    // Storage full or unavailable (private browsing, etc.) -- caching is a nice-to-have, not
+    // required for the page to work, so fail silently.
+  }
+}
+
 export default function PlanPage() {
   const router = useRouter();
   const [role, setRole] = useState<Role | null>(null);
@@ -29,6 +70,38 @@ export default function PlanPage() {
     [calendarMonth]
   );
 
+  // Covers both the two-week add-plan strips and whatever month is currently displayed on the
+  // calendar (which can be paged independently of "this/next week") in a single range, so paging
+  // the calendar never has to wait on a second round-trip just to light up its dots. Hoisted out
+  // of the fetch effect below so the cache-read effect can use the exact same range.
+  const { rangeStart, rangeEnd } = useMemo(() => {
+    const gridStart = monthGrid[0].date;
+    const gridEndExclusive = new Date(monthGrid[monthGrid.length - 1].date.getTime() + MS_PER_DAY);
+    const start = new Date(Math.min(thisWeek[0].getTime(), gridStart.getTime()));
+    const endExclusive = new Date(
+      Math.max(nextWeek[6].getTime() + MS_PER_DAY, gridEndExclusive.getTime())
+    );
+    return {
+      rangeStart: start.toISOString(),
+      rangeEnd: new Date(endExclusive.getTime() - 1).toISOString(),
+    };
+  }, [thisWeek, nextWeek, monthGrid]);
+
+  // Render instantly from cache (if any) for this exact range, before either fetch below even
+  // starts -- both still run right after to keep things current. Deferred to a microtask so
+  // setState isn't called synchronously in the effect body itself (still resolves before paint,
+  // so there's no visible delay).
+  useEffect(() => {
+    queueMicrotask(() => {
+      const cached = readPlanCache(rangeStart, rangeEnd);
+      if (!cached) return;
+      setRole(cached.role);
+      setClimbingMode(cached.climbingMode);
+      setCategories(cached.categories);
+      setPlans(cached.plans);
+    });
+  }, [rangeStart, rangeEnd]);
+
   useEffect(() => {
     fetch("/api/session")
       .then((r) => r.json())
@@ -43,33 +116,29 @@ export default function PlanPage() {
       .catch(() => {});
   }, []);
 
-  // Covers both the two-week add-plan strips and whatever month is currently displayed on the
-  // calendar (which can be paged independently of "this/next week") in a single fetch, so paging
-  // the calendar never has to wait on a second round-trip just to light up its dots.
   useEffect(() => {
-    const gridStart = monthGrid[0].date;
-    const gridEndExclusive = new Date(monthGrid[monthGrid.length - 1].date.getTime() + MS_PER_DAY);
-    const rangeStart = new Date(Math.min(thisWeek[0].getTime(), gridStart.getTime()));
-    const rangeEndExclusive = new Date(
-      Math.max(nextWeek[6].getTime() + MS_PER_DAY, gridEndExclusive.getTime())
-    );
-
-    const start = rangeStart.toISOString();
-    const end = new Date(rangeEndExclusive.getTime() - 1).toISOString();
-
     let cancelled = false;
-    fetch(`/api/plans?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`)
+    fetch(`/api/plans?start=${encodeURIComponent(rangeStart)}&end=${encodeURIComponent(rangeEnd)}`)
       .then((r) => r.json())
       .then((data) => {
         if (!cancelled) setPlans(Array.isArray(data) ? data : []);
       })
       .catch(() => {
-        if (!cancelled) setPlans([]);
+        // Keep whatever we already have (e.g. from cache) rather than wiping it on a transient
+        // network blip -- only fall back to empty if there was nothing to show yet.
+        if (!cancelled) setPlans((prev) => prev ?? []);
       });
     return () => {
       cancelled = true;
     };
-  }, [thisWeek, nextWeek, monthGrid]);
+  }, [rangeStart, rangeEnd]);
+
+  // Keeps the cache current so the next visit can skip the wait too. Fires whenever any piece
+  // changes, once there's a real plans array to persist (skips the initial null/loading state).
+  useEffect(() => {
+    if (plans === null) return;
+    writePlanCache({ fetchedAt: Date.now(), rangeStart, rangeEnd, role, climbingMode, categories, plans });
+  }, [plans, role, climbingMode, categories, rangeStart, rangeEnd]);
 
   const grouped = useMemo(
     () => (plans ? groupPlansByDay(plans) : new Map<string, WorkoutPlan[]>()),

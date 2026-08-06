@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { MessageSquare, Loader2, Trash2 } from "lucide-react";
@@ -11,6 +11,8 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import type { Role } from "@/lib/auth";
 import type { EntryComment } from "@/lib/types";
+
+const COMMENT_AUTHOR_NAME_KEY = "repLogCommentAuthorName";
 
 export function CommentsSection({
   entryId,
@@ -29,15 +31,27 @@ export function CommentsSection({
 
   const canComment = role === "owner" || role === "visitor";
 
+  // Client-only (avoids an SSR/hydration mismatch, since the server has no localStorage) --
+  // pre-fills the name field with whatever was last used, so it doesn't have to be retyped on
+  // every comment. Deferred to a microtask so setState isn't called synchronously in the effect
+  // body itself (still resolves before paint, so there's no visible delay).
+  useEffect(() => {
+    queueMicrotask(() => {
+      const saved = localStorage.getItem(COMMENT_AUTHOR_NAME_KEY);
+      if (saved) setAuthorName(saved);
+    });
+  }, []);
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!body.trim()) return;
     setSubmitting(true);
     try {
+      const trimmedName = authorName.trim();
       const res = await fetch(`/api/entries/${entryId}/comments`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ body, authorName: authorName.trim() || null }),
+        body: JSON.stringify({ body, authorName: trimmedName || null }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => null);
@@ -45,6 +59,9 @@ export function CommentsSection({
           typeof data?.error === "string" ? data.error : "Couldn't post that comment."
         );
       }
+      // Only remembered when actually provided -- an accidental blank name on one comment
+      // shouldn't erase a name already remembered from an earlier one.
+      if (trimmedName) localStorage.setItem(COMMENT_AUTHOR_NAME_KEY, trimmedName);
       setBody("");
       toast.success("Comment posted");
       router.refresh();
