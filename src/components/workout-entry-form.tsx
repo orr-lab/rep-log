@@ -122,6 +122,14 @@ export function WorkoutEntryForm({
   const [uploadProgress, setUploadProgress] = useState(0);
   const [videoError, setVideoError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // Which action triggered the in-flight save, so only that button shows its own spinner instead
+  // of both lighting up together.
+  const [submittingAction, setSubmittingAction] = useState<"save" | "save-and-another" | null>(
+    null
+  );
+  // Logging several videos for the same exercise back-to-back (see "Save & log another" below) --
+  // just a running count shown in that button's feedback toast, not persisted anywhere.
+  const [loggedCount, setLoggedCount] = useState(0);
   const hiddenVideoRef = useRef<HTMLVideoElement>(null);
 
   const [loggedExercises, setLoggedExercises] = useState<string[]>([]);
@@ -301,23 +309,23 @@ export function WorkoutEntryForm({
     );
   }, [exerciseName, recordedAt, replacingVideo, videoUrl, climbingMode, gym, grade]);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-
+  /** Validates and saves, returning the saved entry on success or null on failure (already
+   *  toasted) -- shared by both "Save entry" and "Save & log another", which only differ in what
+   *  happens after a successful save. */
+  async function submitEntry(): Promise<WorkoutEntry | null> {
     if (!exerciseName.trim()) {
       toast.error(climbingMode ? "Give the route or problem a name first." : "Give the exercise a name first.");
-      return;
+      return null;
     }
     if (climbingMode && (!gym.trim() || grade === "")) {
       toast.error("Add a gym and a grade first.");
-      return;
+      return null;
     }
     if (replacingVideo && !videoUrl) {
       toast.error("Add a video — upload a file or paste a YouTube link — before saving.");
-      return;
+      return null;
     }
 
-    setSubmitting(true);
     const payload = {
       exerciseName: exerciseName.trim(),
       weight: climbingMode ? null : weight ? Number(weight) : null,
@@ -352,14 +360,45 @@ export function WorkoutEntryForm({
         throw new Error("Could not save this entry. Please try again.");
       }
 
-      const saved = await res.json();
+      return (await res.json()) as WorkoutEntry;
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Something went wrong.");
+      return null;
+    }
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setSubmitting(true);
+    setSubmittingAction("save");
+    try {
+      const saved = await submitEntry();
+      if (!saved) return;
       toast.success(mode === "create" ? "Set logged!" : "Changes saved");
       router.push(`/entries/${saved.id}`);
       router.refresh();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Something went wrong.");
     } finally {
       setSubmitting(false);
+      setSubmittingAction(null);
+    }
+  }
+
+  /** Saves the current entry, then clears just the video (keeping the exercise, date, gym,
+   *  grade/weight, sets/reps, tags, etc. as-is) so the next attempt's video can be logged right
+   *  away instead of retyping everything -- for logging several videos of the same exercise back
+   *  to back. */
+  async function handleSaveAndAddAnother() {
+    setSubmitting(true);
+    setSubmittingAction("save-and-another");
+    try {
+      const saved = await submitEntry();
+      if (!saved) return;
+      setLoggedCount((n) => n + 1);
+      clearVideo();
+      toast.success(`Set logged (${loggedCount + 1} so far) — add the next video.`);
+    } finally {
+      setSubmitting(false);
+      setSubmittingAction(null);
     }
   }
 
@@ -713,8 +752,19 @@ export function WorkoutEntryForm({
         <Button type="button" variant="ghost" onClick={() => router.back()}>
           Cancel
         </Button>
+        {mode === "create" && (
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={!canSubmit || submitting || uploading || compressing}
+            onClick={handleSaveAndAddAnother}
+          >
+            {submittingAction === "save-and-another" && <Loader2 className="size-4 animate-spin" />}
+            Save &amp; log another video
+          </Button>
+        )}
         <Button type="submit" disabled={!canSubmit || submitting || uploading || compressing}>
-          {submitting && <Loader2 className="size-4 animate-spin" />}
+          {submittingAction === "save" && <Loader2 className="size-4 animate-spin" />}
           {mode === "create" ? "Save entry" : "Save changes"}
         </Button>
       </div>
