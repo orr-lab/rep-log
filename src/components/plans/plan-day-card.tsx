@@ -60,7 +60,7 @@ export function PlanDayCard({
 
   return (
     <div
-      className={`space-y-3 rounded-xl border p-3 ${isToday ? "border-primary/50 bg-primary/5" : ""}`}
+      className={`space-y-4 rounded-xl border p-3 ${isToday ? "border-primary/50 bg-primary/5" : ""}`}
     >
       {dayPlans.length > 0 ? (
         // The day-strip columns are too narrow on desktop for the inline plan cards below to
@@ -69,7 +69,11 @@ export function PlanDayCard({
         <Dialog>
           <DialogTrigger
             aria-label={`View ${fullDate}'s plan in full`}
-            className="-m-1 block w-full rounded-md p-1 text-left transition-colors hover:bg-muted/60"
+            // -mx/-mt (not -m) deliberately excludes the bottom side -- a full -m-1 cancels out
+            // the parent's space-y-4 gap to the plan list below (margin-bottom stacks against
+            // margin-block-end from space-y, and the negative one wins), which is exactly what
+            // made the header and first card look jammed together.
+            className="-mx-1 -mt-1 block w-full rounded-md px-1 pt-1 text-left transition-colors hover:bg-muted/60"
           >
             {header}
           </DialogTrigger>
