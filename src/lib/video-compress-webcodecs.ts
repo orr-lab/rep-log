@@ -200,6 +200,10 @@ async function pickSupportedCodec(width: number, height: number): Promise<string
       height,
       bitrate: TARGET_BITRATE,
       framerate: TARGET_FPS,
+      // A hint, not a requirement -- isConfigSupported still returns true for configs only a
+      // software encoder can handle, so this doesn't reject anything, but it does make browsers
+      // that would otherwise default to software actually reach for hardware where available.
+      hardwareAcceleration: "prefer-hardware",
     });
     if (support.supported) return codec;
   }
@@ -227,6 +231,7 @@ export async function compressVideoWebCodecs(
     codedWidth: video.width,
     codedHeight: video.height,
     description: video.description,
+    hardwareAcceleration: "prefer-hardware",
   });
   if (!decoderSupport.supported) {
     throw new Error(`No supported decoder for source codec ${video.codec}.`);
@@ -272,6 +277,7 @@ export async function compressVideoWebCodecs(
     height,
     bitrate: TARGET_BITRATE,
     framerate: TARGET_FPS,
+    hardwareAcceleration: "prefer-hardware",
   });
 
   const decoderErrors: Error[] = [];
@@ -292,6 +298,7 @@ export async function compressVideoWebCodecs(
     codedWidth: video.width,
     codedHeight: video.height,
     description: video.description,
+    hardwareAcceleration: "prefer-hardware",
   });
 
   for (const sample of videoSamples) {
@@ -321,5 +328,5 @@ export async function compressVideoWebCodecs(
   const { buffer } = muxer.target as InstanceType<typeof ArrayBufferTarget>;
   const outputFile = new File([buffer], file.name.replace(/\.[^.]+$/, "") + ".mp4", { type: "video/mp4" });
 
-  return { file: outputFile, originalBytes: file.size, compressedBytes: outputFile.size };
+  return { file: outputFile, originalBytes: file.size, compressedBytes: outputFile.size, method: "webcodecs" };
 }

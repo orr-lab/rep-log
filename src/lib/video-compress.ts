@@ -41,6 +41,11 @@ export interface CompressResult {
   file: File;
   originalBytes: number;
   compressedBytes: number;
+  /** Which path actually produced this result -- surfaced in the UI (see workout-entry-form.tsx)
+   *  so a slow compression can be diagnosed from a phone with no devtools access: "webcodecs"
+   *  should be fast (hardware-accelerated on devices that support it), "ffmpeg" is the
+   *  pure-software fallback and is expected to take roughly as long as the video itself. */
+  method: "webcodecs" | "ffmpeg";
 }
 
 function outputFileName(originalName: string): string {
@@ -136,7 +141,7 @@ async function compressVideoFfmpeg(
         : new TextEncoder().encode(String(data));
     const compressed = new File([bytes], outputFileName(file.name), { type: "video/mp4" });
 
-    return { file: compressed, originalBytes: file.size, compressedBytes: compressed.size };
+    return { file: compressed, originalBytes: file.size, compressedBytes: compressed.size, method: "ffmpeg" };
   } finally {
     ffmpeg.off("progress", handleProgress);
     await ffmpeg.deleteFile(inputName).catch(() => {});

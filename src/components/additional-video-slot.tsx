@@ -87,8 +87,11 @@ export function AdditionalVideoSlot({
       let uploadFile = file;
       setCompressing(true);
       setCompressionProgress(0);
+      const compressStart = performance.now();
       try {
         const result = await compressVideo(file, (ratio) => setCompressionProgress(ratio * 100));
+        const seconds = ((performance.now() - compressStart) / 1000).toFixed(1);
+        toast.message(`Compressed via ${result.method} in ${seconds}s`);
         if (result.compressedBytes < result.originalBytes) {
           uploadFile = result.file;
         }

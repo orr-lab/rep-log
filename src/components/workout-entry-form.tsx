@@ -231,8 +231,15 @@ export function WorkoutEntryForm({
     let uploadFile = file;
     setCompressing(true);
     setCompressionProgress(0);
+    const compressStart = performance.now();
     try {
       const result = await compressVideo(file, (ratio) => setCompressionProgress(ratio * 100));
+      // Surfaced so a slow compression can be diagnosed from a phone with no devtools access --
+      // "webcodecs" should be fast (hardware-accelerated where the device supports it),
+      // "ffmpeg" is the pure-software fallback and is expected to take roughly as long as the
+      // video itself.
+      const seconds = ((performance.now() - compressStart) / 1000).toFixed(1);
+      toast.message(`Compressed via ${result.method} in ${seconds}s`);
       // Only keep the compressed version if it's actually smaller -- an already-efficient
       // source file can occasionally come out larger after a lossy re-encode, and there's no
       // point uploading a bigger "compressed" file.
