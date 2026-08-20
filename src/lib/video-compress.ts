@@ -76,17 +76,24 @@ export async function compressVideo(
       "-i",
       inputName,
       "-vf",
-      "scale='min(1280,iw)':'min(720,ih)':force_original_aspect_ratio=decrease",
+      // force_divisible_by=2 is the actual fix confirmed against a real portrait phone
+      // recording: ffmpeg auto-rotates a portrait video (applying its Display Matrix rotation
+      // side data) *before* -vf runs, so for a portrait source the "iw"/"ih" this scale filter
+      // sees are already transposed -- e.g. a 1920x1080-stored, rotated-90 source becomes a
+      // 1080x1920 input here. force_original_aspect_ratio=decrease on its own can then land on
+      // an odd width/height (reproduced: 405x720), which libx264 flatly rejects -- H.264 needs
+      // even dimensions for 4:2:0 chroma subsampling -- so the encoder fails to open, the whole
+      // exec() throws, and compression silently falls back to uploading the original file.
+      // Since most phones record HEVC, that fallback is usually a format browsers can't play at
+      // all, which is what actually caused the "no video with supported format" reports.
+      "scale='min(1280,iw)':'min(720,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2",
       "-r",
       "30",
       "-c:v",
       "libx264",
-      // Without this, libx264 preserves the source's bit depth -- most phones shoot HDR by
-      // default (10-bit HEVC), and re-encoding that without forcing 8-bit here produces "H.264
-      // High 10" output, a profile almost no hardware decoder (including Android's) supports.
-      // Confirmed by direct repro: same command minus this flag produced yuv420p10le/High 10
-      // output that failed with "no video with supported format"; adding it produces a normal
-      // 8-bit yuv420p stream every browser can play.
+      // Also forces standard 8-bit output regardless of the source's bit depth -- some phones
+      // shoot HDR (10-bit HEVC), and without this libx264 preserves that depth, producing "H.264
+      // High 10" output that most hardware decoders don't support either.
       "-pix_fmt",
       "yuv420p",
       "-preset",
