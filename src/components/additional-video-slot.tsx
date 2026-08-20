@@ -29,8 +29,11 @@ export interface SavedAdditionalVideo {
 /** A single "add another video" upload/YouTube-link flow, scoped to its own local state -- a
  *  compact sibling of the primary video section on WorkoutEntryForm, reusing the same
  *  compress-then-upload pipeline. One of these is mounted at a time (see additionalVideos +
- *  addingVideo on WorkoutEntryForm); once `onSave` fires the parent adds the result to its list
- *  and unmounts this. */
+ *  addingVideo on WorkoutEntryForm). `onSave` fires automatically as soon as the video is ready
+ *  (upload finishes, or a valid YouTube link is pasted) -- there's no separate confirm step,
+ *  since requiring one turned out to be an easy way to lose a video entirely: a user would drop
+ *  the file, see it upload successfully, then hit "Save entry" without noticing there was still
+ *  a manual "Add video" button to click, and the video was never attached to the entry at all. */
 export function AdditionalVideoSlot({
   uploadsEnabled,
   maxUploadBytes,
@@ -46,9 +49,7 @@ export function AdditionalVideoSlot({
 }) {
   const [videoSource, setVideoSource] = useState<VideoSource>(uploadsEnabled ? "UPLOAD" : "YOUTUBE");
   const [videoUrl, setVideoUrl] = useState("");
-  const [youtubeId, setYoutubeId] = useState<string | null>(null);
   const [youtubeInput, setYoutubeInput] = useState("");
-  const [durationSec, setDurationSec] = useState<number | null>(null);
   const [filePreview, setFilePreview] = useState<string | null>(null);
   const [compressing, setCompressing] = useState(false);
   const [compressionProgress, setCompressionProgress] = useState(0);
@@ -56,6 +57,10 @@ export function AdditionalVideoSlot({
   const [uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const hiddenVideoRef = useRef<HTMLVideoElement>(null);
+  // Mirrors durationSec for onDrop's async closure to read -- the closure captures whatever
+  // durationSec was when onDrop (memoized via useCallback) was created, which can be stale by
+  // the time the upload actually finishes; a ref always reads the latest value.
+  const durationSecRef = useRef<number | null>(null);
 
   useEffect(() => {
     return () => {
@@ -116,13 +121,19 @@ export function AdditionalVideoSlot({
         });
         setVideoUrl(result.url);
         toast.success("Video uploaded");
+        onSave({
+          videoSource: "UPLOAD",
+          videoUrl: result.url,
+          youtubeId: null,
+          durationSec: durationSecRef.current,
+        });
       } catch (err) {
         setError(err instanceof Error ? err.message : "Upload failed. Please try again.");
       } finally {
         setUploading(false);
       }
     },
-    [userId, maxUploadBytes]
+    [userId, maxUploadBytes, onSave]
   );
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -135,7 +146,7 @@ export function AdditionalVideoSlot({
   function handleVideoMetadataLoaded() {
     const video = hiddenVideoRef.current;
     if (video && Number.isFinite(video.duration)) {
-      setDurationSec(Math.round(video.duration));
+      durationSecRef.current = Math.round(video.duration);
     }
   }
 
@@ -143,17 +154,14 @@ export function AdditionalVideoSlot({
     setYoutubeInput(value);
     const id = extractYouTubeId(value);
     if (id) {
-      setYoutubeId(id);
       setVideoUrl(value.trim());
       setError(null);
+      onSave({ videoSource: "YOUTUBE", videoUrl: value.trim(), youtubeId: id, durationSec: null });
     } else {
-      setYoutubeId(null);
       setVideoUrl("");
       setError(value.trim() ? "Doesn't look like a valid YouTube link." : null);
     }
   }
-
-  const ready = Boolean(videoUrl) && !uploading && !compressing;
 
   return (
     <div className="space-y-3 rounded-lg border p-3">
@@ -163,7 +171,6 @@ export function AdditionalVideoSlot({
           onValueChange={(v) => {
             setVideoSource(v as VideoSource);
             setVideoUrl("");
-            setYoutubeId(null);
             setYoutubeInput("");
             setFilePreview(null);
             setError(null);
@@ -250,24 +257,9 @@ export function AdditionalVideoSlot({
 
       {error && <p className="text-sm text-destructive">{error}</p>}
 
-      <div className="flex justify-end gap-2">
+      <div className="flex justify-end">
         <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
           Cancel
-        </Button>
-        <Button
-          type="button"
-          size="sm"
-          disabled={!ready}
-          onClick={() =>
-            onSave({
-              videoSource,
-              videoUrl,
-              youtubeId: videoSource === "YOUTUBE" ? youtubeId : null,
-              durationSec,
-            })
-          }
-        >
-          Add video
         </Button>
       </div>
     </div>
