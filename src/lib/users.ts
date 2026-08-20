@@ -110,7 +110,14 @@ export async function deleteUserCascade(userId: string): Promise<void> {
     where: { userId, videoSource: "UPLOAD" },
     select: { videoUrl: true },
   });
-  await Promise.all(entries.map((e) => del(e.videoUrl).catch(() => {})));
+  const extraVideos = await prisma.entryVideo.findMany({
+    where: { videoSource: "UPLOAD", entry: { userId } },
+    select: { videoUrl: true },
+  });
+  await Promise.all([
+    ...entries.map((e) => del(e.videoUrl).catch(() => {})),
+    ...extraVideos.map((v) => del(v.videoUrl).catch(() => {})),
+  ]);
 
   await prisma.user.delete({ where: { id: userId } });
 }

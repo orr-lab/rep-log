@@ -36,16 +36,49 @@ export async function PATCH(
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
-  const { recordedAt, ...rest } = parsed.data;
+  const existing = await prisma.workoutEntry.findUnique({
+    where: { id, userId: session.userId },
+    select: { id: true },
+  });
+  if (!existing) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
 
+  const { recordedAt, videos, ...rest } = parsed.data;
+
+  // Presence of `videos` (even []) means "replace the full set of extra videos" -- its absence
+  // (e.g. a plain isFavorite toggle) leaves them untouched. Any UPLOAD-sourced videos being
+  // dropped get their Blob storage cleaned up once the DB write has actually committed.
+  let staleUploadUrls: string[] = [];
   try {
-    const entry = await prisma.workoutEntry.update({
-      where: { id, userId: session.userId },
-      data: {
-        ...rest,
-        ...(recordedAt ? { recordedAt: new Date(recordedAt) } : {}),
-      },
+    const entry = await prisma.$transaction(async (tx) => {
+      if (videos !== undefined) {
+        const current = await tx.entryVideo.findMany({
+          where: { entryId: id },
+          select: { videoUrl: true, videoSource: true },
+        });
+        staleUploadUrls = current
+          .filter((v) => v.videoSource === "UPLOAD")
+          .map((v) => v.videoUrl);
+        await tx.entryVideo.deleteMany({ where: { entryId: id } });
+        if (videos.length > 0) {
+          await tx.entryVideo.createMany({
+            data: videos.map((v, i) => ({ ...v, entryId: id, order: i })),
+          });
+        }
+      }
+      return tx.workoutEntry.update({
+        where: { id },
+        data: {
+          ...rest,
+          ...(recordedAt ? { recordedAt: new Date(recordedAt) } : {}),
+        },
+        include: { videos: { orderBy: { order: "asc" } } },
+      });
     });
+
+    await Promise.all(staleUploadUrls.map((url) => del(url).catch(() => {})));
+
     return NextResponse.json(entry);
   } catch {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -62,6 +95,7 @@ export async function DELETE(
   const { id } = await params;
   const entry = await prisma.workoutEntry.findUnique({
     where: { id, userId: session.userId },
+    include: { videos: { select: { videoSource: true, videoUrl: true } } },
   });
 
   if (!entry) {
@@ -71,6 +105,11 @@ export async function DELETE(
   if (entry.videoSource === "UPLOAD" && entry.videoUrl) {
     await del(entry.videoUrl).catch(() => {});
   }
+  await Promise.all(
+    entry.videos
+      .filter((v) => v.videoSource === "UPLOAD")
+      .map((v) => del(v.videoUrl).catch(() => {}))
+  );
 
   try {
     await prisma.workoutEntry.delete({ where: { id, userId: session.userId } });

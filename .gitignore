@@ -43,3 +43,6 @@ next-env.d.ts
 
 # claude code local permissions (machine-specific)
 .claude/settings.local.json
+
+.vercel
+.env*

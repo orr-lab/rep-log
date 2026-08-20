@@ -25,7 +25,10 @@ export default async function EntryDetailPage({
   const role = session.role;
   const row = await prisma.workoutEntry.findUnique({
     where: { id, userId: session.userId },
-    include: { comments: { orderBy: { createdAt: "asc" } } },
+    include: {
+      comments: { orderBy: { createdAt: "asc" } },
+      videos: { orderBy: { order: "asc" } },
+    },
   });
   if (!row) notFound();
 

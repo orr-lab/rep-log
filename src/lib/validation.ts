@@ -1,5 +1,15 @@
 import { z } from "zod";
 
+// An additional video attached to the same entry (see EntryVideo in schema.prisma) -- same shape
+// as the primary video fields below, minus recordedAt/exercise details which don't repeat per
+// video.
+export const entryVideoInputSchema = z.object({
+  videoSource: z.enum(["UPLOAD", "YOUTUBE"]),
+  videoUrl: z.string().trim().min(1),
+  youtubeId: z.string().trim().optional().nullable(),
+  durationSec: z.number().int().positive().optional().nullable(),
+});
+
 export const entryInputSchema = z.object({
   exerciseName: z.string().trim().min(1, "Exercise name is required").max(200),
   weight: z.number().positive().optional().nullable(),
@@ -20,6 +30,11 @@ export const entryInputSchema = z.object({
   // Set when this entry is created by fulfilling a planned workout (see planInputSchema below) --
   // the entries route links the plan to the new entry atomically in the same request.
   fulfillsPlanId: z.string().trim().optional().nullable(),
+  // Extra videos beyond the primary videoSource/videoUrl/youtubeId above (see EntryVideo). On
+  // update, presence of this key (even an empty array) means "replace the full set" -- omitting
+  // it entirely (as entryUpdateSchema allows via .partial()) leaves existing extra videos alone,
+  // which is what lets unrelated PATCHes (e.g. toggling isFavorite) not touch them.
+  videos: z.array(entryVideoInputSchema).max(20).default([]),
 });
 
 export type EntryInput = z.infer<typeof entryInputSchema>;

@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
-  const { fulfillsPlanId, ...data } = parsed.data;
+  const { fulfillsPlanId, videos, ...data } = parsed.data;
 
   if (data.videoSource === "UPLOAD" && !(await isVideoUploadEnabled())) {
     return NextResponse.json(
@@ -85,7 +85,12 @@ export async function POST(request: NextRequest) {
         recordedAt: new Date(data.recordedAt),
         userId: session.userId,
         planId: fulfillsPlanId ?? null,
+        videos:
+          videos.length > 0
+            ? { create: videos.map((v, i) => ({ ...v, order: i })) }
+            : undefined,
       },
+      include: { videos: { orderBy: { order: "asc" } } },
     });
     return NextResponse.json(entry, { status: 201 });
   } catch (err) {

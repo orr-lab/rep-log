@@ -1,5 +1,14 @@
 export type VideoSource = "UPLOAD" | "YOUTUBE";
 
+export interface EntryVideo {
+  id: string;
+  videoSource: VideoSource;
+  videoUrl: string;
+  youtubeId: string | null;
+  durationSec: number | null;
+  order: number;
+}
+
 export interface WorkoutEntry {
   id: string;
   exerciseName: string;
@@ -24,6 +33,10 @@ export interface WorkoutEntry {
   createdAt: string;
   updatedAt: string;
   planId: string | null;
+  /** Extra clips beyond the primary video above -- only populated where a caller actually
+   *  fetched them (entry detail pages, the edit form); list/thumbnail views leave this undefined
+   *  and keep rendering just the primary video. */
+  videos?: EntryVideo[];
 }
 
 export function exerciseKey(entry: Pick<WorkoutEntry, "exerciseName">): string {

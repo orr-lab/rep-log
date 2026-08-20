@@ -85,12 +85,39 @@ model WorkoutEntry {
   plan   WorkoutPlan? @relation(fields: [planId], references: [id], onDelete: SetNull)
 
   comments Comment[]
+  // Extra clips attached to this same log, beyond the primary video/videoSource/youtubeId above
+  // (kept as-is for backward compatibility -- every entry still has exactly one "primary" video).
+  // See src/components/workout-entry-form.tsx's "Add another video" flow.
+  videos   EntryVideo[]
 
   @@index([exerciseName])
   @@index([gym])
   @@index([recordedAt])
   @@index([userId])
   @@index([planId])
+}
+
+// An additional video attached to a WorkoutEntry beyond its primary one -- e.g. a second angle,
+// or another attempt at the same set/climb, logged in the same session instead of as a separate
+// entry (see the "Save & log another video" flow on WorkoutEntryForm, which is the older pattern
+// of creating a whole new entry per video). Same shape as the primary video fields on
+// WorkoutEntry, purely additive -- deleting the entry cascades to delete these rows too, but blob
+// cleanup for UPLOAD-sourced videos still has to happen at the app level (see the entries DELETE
+// route and deleteUserCascade in src/lib/users.ts).
+model EntryVideo {
+  id          String      @id @default(cuid())
+  videoSource VideoSource
+  videoUrl    String
+  youtubeId   String?
+  durationSec Int?
+  // Display order among an entry's additional videos (0-based, after the primary video).
+  order       Int         @default(0)
+  createdAt   DateTime    @default(now())
+
+  entryId String
+  entry   WorkoutEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+
+  @@index([entryId])
 }
 
 // A proposed exercise for a specific day, created by either the owner (self-planning) or an

@@ -23,6 +23,7 @@ export default async function PublicEntryDetailPage({
   const { id } = await params;
   const row = await prisma.workoutEntry.findUnique({
     where: { id, userId: adminId },
+    include: { videos: { orderBy: { order: "asc" } } },
   });
   if (!row) notFound();
 

@@ -33,6 +33,7 @@ import { COMMON_EXERCISES, COMMON_TAGS } from "@/lib/exercise-catalog";
 import { GRADE_OPTIONS, formatGrade, COMMON_CLIMBING_TAGS } from "@/lib/climbing";
 import { findExercisePreset } from "@/lib/types";
 import type { WorkoutEntry, VideoSource, ExerciseCategory } from "@/lib/types";
+import { AdditionalVideoSlot, type SavedAdditionalVideo } from "@/components/additional-video-slot";
 
 function toDateInputValue(iso?: string) {
   const d = iso ? new Date(iso) : new Date();
@@ -114,6 +115,21 @@ export function WorkoutEntryForm({
   const [durationSec, setDurationSec] = useState<number | null>(initialData?.durationSec ?? null);
   const [durationDetected, setDurationDetected] = useState(false);
   const [replacingVideo, setReplacingVideo] = useState(mode === "create");
+
+  // Extra clips attached to this same entry, beyond the primary video above (see EntryVideo).
+  // Prefilled from the entry's existing extras in edit mode; `key` is just a stable React key,
+  // unrelated to anything sent to the server.
+  const [additionalVideos, setAdditionalVideos] = useState<(SavedAdditionalVideo & { key: string })[]>(
+    () =>
+      (initialData?.videos ?? []).map((v) => ({
+        key: v.id,
+        videoSource: v.videoSource,
+        videoUrl: v.videoUrl,
+        youtubeId: v.youtubeId,
+        durationSec: v.durationSec,
+      }))
+  );
+  const [addingVideo, setAddingVideo] = useState(false);
 
   const [filePreview, setFilePreview] = useState<string | null>(null);
   const [compressing, setCompressing] = useState(false);
@@ -344,6 +360,12 @@ export function WorkoutEntryForm({
       isFavorite,
       succeeded,
       fulfillsPlanId: mode === "create" ? (fromPlan?.id ?? null) : undefined,
+      videos: additionalVideos.map(({ videoSource: vs, videoUrl: vu, youtubeId: yid, durationSec: ds }) => ({
+        videoSource: vs,
+        videoUrl: vu,
+        youtubeId: yid,
+        durationSec: ds,
+      })),
     };
 
     try {
@@ -395,6 +417,10 @@ export function WorkoutEntryForm({
       if (!saved) return;
       setLoggedCount((n) => n + 1);
       clearVideo();
+      // The extra videos just attached belong to the entry that was just saved -- they'd
+      // otherwise carry over and end up referenced by the next entry too.
+      setAdditionalVideos([]);
+      setAddingVideo(false);
       toast.success(`Set logged (${loggedCount + 1} so far) — add the next video.`);
     } finally {
       setSubmitting(false);
@@ -541,6 +567,60 @@ export function WorkoutEntryForm({
             {videoError && <p className="text-sm text-destructive">{videoError}</p>}
           </div>
         )}
+
+        <div className="space-y-2 border-t pt-3">
+          <Label>Additional videos (optional)</Label>
+          <p className="text-xs text-muted-foreground">
+            Attach more clips to this same log — a different angle, or another attempt.
+          </p>
+
+          {additionalVideos.length > 0 && (
+            <ul className="space-y-1.5">
+              {additionalVideos.map((v, i) => (
+                <li
+                  key={v.key}
+                  className="flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm"
+                >
+                  <span className="flex items-center gap-1.5 text-muted-foreground">
+                    <Film className="size-3.5" /> Video {i + 2} —{" "}
+                    {v.videoSource === "YOUTUBE" ? "YouTube" : "Uploaded"}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label={`Remove video ${i + 2}`}
+                    onClick={() =>
+                      setAdditionalVideos((prev) => prev.filter((x) => x.key !== v.key))
+                    }
+                  >
+                    <X className="size-3.5" />
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {addingVideo ? (
+            <AdditionalVideoSlot
+              uploadsEnabled={uploadsEnabled}
+              maxUploadBytes={maxUploadBytes}
+              userId={userId}
+              onCancel={() => setAddingVideo(false)}
+              onSave={(video) => {
+                setAdditionalVideos((prev) => [
+                  ...prev,
+                  { key: `${Date.now()}-${prev.length}`, ...video },
+                ]);
+                setAddingVideo(false);
+              }}
+            />
+          ) : (
+            <Button type="button" variant="outline" size="sm" onClick={() => setAddingVideo(true)}>
+              <Film className="size-3.5" /> Add another video
+            </Button>
+          )}
+        </div>
       </section>
 
       <section className="grid gap-4 sm:grid-cols-2">

@@ -18,6 +18,7 @@ export default async function EditEntryPage({
   const { id } = await params;
   const row = await prisma.workoutEntry.findUnique({
     where: { id, userId: session.userId },
+    include: { videos: { orderBy: { order: "asc" } } },
   });
   if (!row) notFound();
 
