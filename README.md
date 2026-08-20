@@ -404,19 +404,15 @@ unlike comments and plans, since a visitor shouldn't be able to fabricate an acc
 
 Uploaded videos are compressed client-side -- H.264/AAC, capped at 720p/30fps, CRF 28 -- via
 [ffmpeg.wasm](https://github.com/ffmpegwasm/ffmpeg.wasm) before they ever reach Blob storage, in
-[src/lib/video-compress.ts](src/lib/video-compress.ts). Two cores are self-hosted: a
-multi-threaded one (`public/ffmpeg-mt/`, from `@ffmpeg/core-mt`) used whenever the page is
-cross-origin isolated, and a single-threaded fallback (`public/ffmpeg/`, from `@ffmpeg/core`) for
-the rest. Multi-threading matters because most phones record HEVC by default, and software HEVC
-decoding -- which happens before ffmpeg can even start re-encoding, and isn't affected by the
-encode preset at all -- is the actual bottleneck on a single core. Cross-origin isolation comes
-from the `Cross-Origin-Opener-Policy: same-origin` / `Cross-Origin-Embedder-Policy: credentialless`
-headers set in `next.config.ts`; `credentialless` specifically avoids breaking the YouTube iframe
-embed in `VideoPlayer` (unlike the stricter `require-corp`, it doesn't need YouTube's own opt-in).
-Browsers that don't support `credentialless` just end up not cross-origin isolated, which
-`video-compress.ts` treats as a normal fallback to the single-threaded core. If compression fails
-for any reason (an unsupported format, a browser without WASM support, a bug), the original file
-uploads as-is instead of blocking the set from being logged at all.
+[src/lib/video-compress.ts](src/lib/video-compress.ts). This uses the single-threaded ffmpeg.wasm
+core specifically (self-hosted from `public/ffmpeg/`, copied from `@ffmpeg/core`'s build output).
+A multi-threaded core (`@ffmpeg/core-mt`, which needs cross-origin-isolation headers app-wide) was
+tried and reverted -- self-hosted this way it reliably hung indefinitely during its worker-thread
+pool init rather than actually completing a transcode, which in production meant compression
+silently "failed" and fell back to uploading the original file; since most phones record HEVC,
+that's usually a format browsers can't play back at all. If compression fails for any reason (an
+unsupported format, a browser without WASM support, a bug), the original file uploads as-is
+instead of blocking the set from being logged at all.
 
 Because the video is already shrunk before it's uploaded, the raw-file cap can afford to be
 generous — 2048MB (2GB) by default, covering even a multi-minute 4K phone recording — while what

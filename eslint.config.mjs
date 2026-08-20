@@ -12,11 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
-    // Vendored ffmpeg.wasm core glue code (copied from @ffmpeg/core's and @ffmpeg/core-mt's
-    // build output into public/ so it's self-hosted, see src/lib/video-compress.ts) --
-    // generated/minified third-party output, not something to hold to this project's lint rules.
+    // Vendored ffmpeg.wasm core glue code (copied from @ffmpeg/core's build output into
+    // public/ so it's self-hosted, see src/lib/video-compress.ts) -- generated/minified
+    // third-party output, not something to hold to this project's lint rules.
     "public/ffmpeg/**",
-    "public/ffmpeg-mt/**",
   ]),
   {
     // Standalone CommonJS scripts run directly via `node scripts/*.js`, outside the Next.js
