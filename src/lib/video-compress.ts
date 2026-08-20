@@ -46,6 +46,9 @@ export interface CompressResult {
    *  should be fast (hardware-accelerated on devices that support it), "ffmpeg" is the
    *  pure-software fallback and is expected to take roughly as long as the video itself. */
   method: "webcodecs" | "ffmpeg";
+  /** Set when method is "ffmpeg" because the WebCodecs attempt threw -- the error message, so a
+   *  phone with no devtools access can still report back *why* it fell back. */
+  fallbackReason?: string;
 }
 
 function outputFileName(originalName: string): string {
@@ -70,9 +73,11 @@ export async function compressVideo(
   try {
     return await compressVideoWebCodecs(file, onProgress);
   } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
     console.error("WebCodecs compression failed, falling back to ffmpeg.wasm:", err);
+    const result = await compressVideoFfmpeg(file, onProgress);
+    return { ...result, fallbackReason: reason };
   }
-  return compressVideoFfmpeg(file, onProgress);
 }
 
 /** ffmpeg.wasm fallback path -- single-threaded (see loadFFmpeg above), so wall-clock encode

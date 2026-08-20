@@ -239,7 +239,10 @@ export function WorkoutEntryForm({
       // "ffmpeg" is the pure-software fallback and is expected to take roughly as long as the
       // video itself.
       const seconds = ((performance.now() - compressStart) / 1000).toFixed(1);
-      toast.message(`Compressed via ${result.method} in ${seconds}s`);
+      toast.message(
+        `Compressed via ${result.method} in ${seconds}s` +
+          (result.fallbackReason ? ` (webcodecs failed: ${result.fallbackReason})` : "")
+      );
       // Only keep the compressed version if it's actually smaller -- an already-efficient
       // source file can occasionally come out larger after a lossy re-encode, and there's no
       // point uploading a bigger "compressed" file.
@@ -248,8 +251,11 @@ export function WorkoutEntryForm({
       }
     } catch (err) {
       // Compression is a nice-to-have, not a requirement -- fall back to the original file
-      // rather than blocking the user from logging their set.
+      // rather than blocking the user from logging their set. Still surfaced as a toast (not
+      // just console.error) so this is diagnosable from a phone with no devtools access.
+      const message = err instanceof Error ? err.message : String(err);
       console.error("Video compression failed, uploading the original file instead:", err);
+      toast.message(`Compression failed, uploading original file: ${message}`);
     } finally {
       setCompressing(false);
     }

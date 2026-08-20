@@ -91,12 +91,17 @@ export function AdditionalVideoSlot({
       try {
         const result = await compressVideo(file, (ratio) => setCompressionProgress(ratio * 100));
         const seconds = ((performance.now() - compressStart) / 1000).toFixed(1);
-        toast.message(`Compressed via ${result.method} in ${seconds}s`);
+        toast.message(
+          `Compressed via ${result.method} in ${seconds}s` +
+            (result.fallbackReason ? ` (webcodecs failed: ${result.fallbackReason})` : "")
+        );
         if (result.compressedBytes < result.originalBytes) {
           uploadFile = result.file;
         }
       } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
         console.error("Video compression failed, uploading the original file instead:", err);
+        toast.message(`Compression failed, uploading original file: ${message}`);
       } finally {
         setCompressing(false);
       }
