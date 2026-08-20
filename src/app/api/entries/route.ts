@@ -69,32 +69,23 @@ export async function POST(request: NextRequest) {
   if (fulfillsPlanId) {
     const plan = await prisma.workoutPlan.findUnique({
       where: { id: fulfillsPlanId, userId: session.userId },
-      select: { id: true, fulfilledEntryId: true },
+      select: { id: true },
     });
     if (!plan) {
       return NextResponse.json({ error: "That plan no longer exists." }, { status: 404 });
     }
-    if (plan.fulfilledEntryId) {
-      return NextResponse.json({ error: "That plan has already been logged." }, { status: 409 });
-    }
   }
 
   try {
-    const entry = await prisma.$transaction(async (tx) => {
-      const created = await tx.workoutEntry.create({
-        data: {
-          ...data,
-          recordedAt: new Date(data.recordedAt),
-          userId: session.userId,
-        },
-      });
-      if (fulfillsPlanId) {
-        await tx.workoutPlan.update({
-          where: { id: fulfillsPlanId, userId: session.userId },
-          data: { fulfilledEntryId: created.id },
-        });
-      }
-      return created;
+    // A plan can be fulfilled by any number of entries, so this is just a direct FK on create --
+    // no need to also touch the plan row.
+    const entry = await prisma.workoutEntry.create({
+      data: {
+        ...data,
+        recordedAt: new Date(data.recordedAt),
+        userId: session.userId,
+        planId: fulfillsPlanId ?? null,
+      },
     });
     return NextResponse.json(entry, { status: 201 });
   } catch (err) {

@@ -77,21 +77,28 @@ model WorkoutEntry {
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  comments     Comment[]
-  fulfilledPlan WorkoutPlan?
+  // The plan this entry was logged against, if any (see fulfillsPlanId in entryInputSchema). Many
+  // entries can point at the same plan -- e.g. logging a few attempts at one planned climb -- so
+  // this is a plain FK on the entry side, not a one-to-one. Deleting the plan just unlinks the
+  // entry (onDelete: SetNull) rather than deleting logged history.
+  planId String?
+  plan   WorkoutPlan? @relation(fields: [planId], references: [id], onDelete: SetNull)
+
+  comments Comment[]
 
   @@index([exerciseName])
   @@index([gym])
   @@index([recordedAt])
   @@index([userId])
+  @@index([planId])
 }
 
 // A proposed exercise for a specific day, created by either the owner (self-planning) or an
 // authenticated visitor (the "any non-public visitor can add a plan" feature) -- never by the
 // fully public, no-login /visitor mirror. No gym field, deliberately: gym is decided at logging
-// time, not planning time. Once the owner logs the matching WorkoutEntry, fulfilledEntryId links
-// to it and the plan shows as done in the calendar; deleting that entry later just unlinks the
-// plan (onDelete: SetNull) rather than deleting the plan's history.
+// time, not planning time. Any number of WorkoutEntry rows can fulfill the same plan (see
+// WorkoutEntry.planId) -- logging one doesn't "use up" the plan, so multiple attempts/videos can
+// be logged against a single planned exercise and the plan still shows as done in the calendar.
 model WorkoutPlan {
   id            String    @id @default(cuid())
   plannedDate   DateTime
@@ -108,8 +115,7 @@ model WorkoutPlan {
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  fulfilledEntryId String?      @unique
-  fulfilledEntry   WorkoutEntry? @relation(fields: [fulfilledEntryId], references: [id], onDelete: SetNull)
+  fulfillingEntries WorkoutEntry[]
 
   @@index([userId, plannedDate])
 }

@@ -23,6 +23,7 @@ export interface WorkoutEntry {
   aiFeedbackAt: string | null;
   createdAt: string;
   updatedAt: string;
+  planId: string | null;
 }
 
 export function exerciseKey(entry: Pick<WorkoutEntry, "exerciseName">): string {
@@ -65,7 +66,9 @@ export interface WorkoutPlan {
   link: string | null;
   createdByRole: string;
   createdAt: string;
-  fulfilledEntryId: string | null;
+  /** Every logged entry that fulfills this plan -- can be more than one (e.g. a few attempts at
+   *  the same planned climb), and empty when the plan hasn't been logged yet. */
+  fulfillingEntries: { id: string }[];
 }
 
 export interface ExercisePreset {

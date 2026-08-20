@@ -23,6 +23,7 @@ export async function GET(request: NextRequest) {
         : {}),
     },
     orderBy: { plannedDate: "asc" },
+    include: { fulfillingEntries: { select: { id: true }, orderBy: { createdAt: "asc" } } },
   });
 
   return NextResponse.json(plans);
@@ -47,6 +48,7 @@ export async function POST(request: NextRequest) {
       createdByRole: session.role,
       userId: session.userId,
     },
+    include: { fulfillingEntries: { select: { id: true } } },
   });
 
   return NextResponse.json(plan, { status: 201 });

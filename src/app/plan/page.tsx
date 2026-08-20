@@ -146,7 +146,7 @@ export default function PlanPage() {
   );
 
   const fulfilledDates = useMemo(
-    () => (plans ?? []).filter((p) => p.fulfilledEntryId != null).map((p) => new Date(p.plannedDate)),
+    () => (plans ?? []).filter((p) => p.fulfillingEntries.length > 0).map((p) => new Date(p.plannedDate)),
     [plans]
   );
 

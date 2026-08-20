@@ -46,7 +46,7 @@ export function PlanCard({
 }) {
   const [deleting, setDeleting] = useState(false);
   const isClimb = plan.grade != null;
-  const isFulfilled = plan.fulfilledEntryId != null;
+  const isFulfilled = plan.fulfillingEntries.length > 0;
   // Same rule for edit and delete: the owner can touch any plan, a visitor only their own
   // not-yet-fulfilled ones (enforced again, authoritatively, by the API routes themselves).
   const canModify =
@@ -124,23 +124,25 @@ export function PlanCard({
       )}
 
       <div className="space-y-1.5 border-t border-border/70 pt-2">
-        <div className="flex items-center">
-          {isFulfilled ? (
+        <div className="flex flex-wrap items-center gap-1">
+          {plan.fulfillingEntries.map((entry, i) => (
             <Link
-              href={`/entries/${plan.fulfilledEntryId}`}
+              key={entry.id}
+              href={`/entries/${entry.id}`}
               className={buttonVariants({ variant: "ghost", size: "sm" })}
             >
-              View entry
+              {plan.fulfillingEntries.length > 1 ? `Entry ${i + 1}` : "View entry"}
             </Link>
-          ) : role === "owner" ? (
+          ))}
+          {role === "owner" ? (
             <Link
               href={`/new?planId=${plan.id}`}
-              className={buttonVariants({ variant: "secondary", size: "sm" })}
+              className={buttonVariants({ variant: isFulfilled ? "ghost" : "secondary", size: "sm" })}
             >
-              <Plus className="size-3.5" /> Log this
+              <Plus className="size-3.5" /> {isFulfilled ? "Log another" : "Log this"}
             </Link>
           ) : (
-            <span />
+            !isFulfilled && <span />
           )}
         </div>
 

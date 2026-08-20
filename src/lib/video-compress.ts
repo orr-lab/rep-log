@@ -74,7 +74,7 @@ export async function compressVideo(
       "-c:v",
       "libx264",
       "-preset",
-      "veryfast",
+      "ultrafast",
       "-crf",
       "28",
       "-c:a",
