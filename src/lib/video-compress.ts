@@ -2,6 +2,7 @@
 
 import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { fetchFile, toBlobURL } from "@ffmpeg/util";
+import { compressVideoWebCodecs } from "./video-compress-webcodecs";
 
 // Self-hosted from public/ffmpeg/ (copied from node_modules/@ffmpeg/core's UMD build) rather than
 // pulled from a CDN at runtime -- one less external dependency for something that runs on every
@@ -50,13 +51,30 @@ function outputFileName(originalName: string): string {
 /** Re-encodes a video client-side (H.264/AAC, capped at 720p/30fps, CRF 28) before upload, so
  *  the bytes that actually hit Blob storage -- and get re-transferred every time the video is
  *  watched or sent to Gemini for AI feedback -- are meaningfully smaller than whatever a phone
- *  camera produced. Runs entirely in the browser via ffmpeg.wasm, single-threaded (see
- *  loadFFmpeg above), so wall-clock encode time is dominated by how many pixels/frames there are
- *  to process -- 720p/30fps (down from 1080p/whatever fps the phone recorded at, often 60) is
- *  the main lever available without multi-threading, and is still plenty for reviewing form.
- *  Failure is always non-fatal from the caller's side -- a compression bug should never block
- *  logging a set, so callers should catch and fall back to uploading the original file. */
+ *  camera produced. Tries hardware-accelerated compression via the browser's own codecs first
+ *  (see video-compress-webcodecs.ts) -- real hardware decode/encode is dramatically faster than
+ *  ffmpeg.wasm's pure-software path -- and falls back to ffmpeg.wasm (below) on any failure:
+ *  unsupported browser, unsupported source codec, no hardware encoder available, anything.
+ *  Failure of the whole thing is always non-fatal from the caller's side -- a compression bug
+ *  should never block logging a set, so callers should catch and fall back to uploading the
+ *  original file. */
 export async function compressVideo(
+  file: File,
+  onProgress?: (ratio: number) => void
+): Promise<CompressResult> {
+  try {
+    return await compressVideoWebCodecs(file, onProgress);
+  } catch (err) {
+    console.error("WebCodecs compression failed, falling back to ffmpeg.wasm:", err);
+  }
+  return compressVideoFfmpeg(file, onProgress);
+}
+
+/** ffmpeg.wasm fallback path -- single-threaded (see loadFFmpeg above), so wall-clock encode
+ *  time is dominated by how many pixels/frames there are to process; 720p/30fps (down from
+ *  1080p/whatever fps the phone recorded at, often 60) is the main lever available without
+ *  multi-threading, and is still plenty for reviewing form. */
+async function compressVideoFfmpeg(
   file: File,
   onProgress?: (ratio: number) => void
 ): Promise<CompressResult> {
