@@ -44,12 +44,15 @@ function outputFileName(originalName: string): string {
   return `${base || "video"}.mp4`;
 }
 
-/** Re-encodes a video client-side (H.264/AAC, capped at 1080p, CRF 28) before upload, so the
- *  bytes that actually hit Blob storage -- and get re-transferred every time the video is
+/** Re-encodes a video client-side (H.264/AAC, capped at 720p/30fps, CRF 28) before upload, so
+ *  the bytes that actually hit Blob storage -- and get re-transferred every time the video is
  *  watched or sent to Gemini for AI feedback -- are meaningfully smaller than whatever a phone
- *  camera produced. Runs entirely in the browser via ffmpeg.wasm; failure is always non-fatal
- *  from the caller's side -- a compression bug should never block logging a set, so callers
- *  should catch and fall back to uploading the original file. */
+ *  camera produced. Runs entirely in the browser via ffmpeg.wasm, single-threaded (see
+ *  loadFFmpeg above), so wall-clock encode time is dominated by how many pixels/frames there are
+ *  to process -- 720p/30fps (down from 1080p/whatever fps the phone recorded at, often 60) is
+ *  the main lever available without multi-threading, and is still plenty for reviewing form.
+ *  Failure is always non-fatal from the caller's side -- a compression bug should never block
+ *  logging a set, so callers should catch and fall back to uploading the original file. */
 export async function compressVideo(
   file: File,
   onProgress?: (ratio: number) => void
@@ -70,7 +73,9 @@ export async function compressVideo(
       "-i",
       inputName,
       "-vf",
-      "scale='min(1920,iw)':'min(1080,ih)':force_original_aspect_ratio=decrease",
+      "scale='min(1280,iw)':'min(720,ih)':force_original_aspect_ratio=decrease",
+      "-r",
+      "30",
       "-c:v",
       "libx264",
       "-preset",
