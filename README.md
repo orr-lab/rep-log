@@ -402,14 +402,21 @@ unlike comments and plans, since a visitor shouldn't be able to fabricate an acc
 
 ## Video compression
 
-Uploaded videos are compressed client-side -- H.264/AAC, capped at 1080p, CRF 28 -- via
+Uploaded videos are compressed client-side -- H.264/AAC, capped at 720p/30fps, CRF 28 -- via
 [ffmpeg.wasm](https://github.com/ffmpegwasm/ffmpeg.wasm) before they ever reach Blob storage, in
-[src/lib/video-compress.ts](src/lib/video-compress.ts). This uses the single-threaded ffmpeg.wasm
-core specifically (self-hosted from `public/ffmpeg/`, copied from `@ffmpeg/core`'s build output)
-rather than the multi-threaded one, which needs cross-origin-isolation (COOP/COEP) response
-headers on the whole app -- not worth that risk just to embed a YouTube iframe more slowly. If
-compression fails for any reason (an unsupported format, a browser without WASM support, a bug),
-the original file uploads as-is instead of blocking the set from being logged at all.
+[src/lib/video-compress.ts](src/lib/video-compress.ts). Two cores are self-hosted: a
+multi-threaded one (`public/ffmpeg-mt/`, from `@ffmpeg/core-mt`) used whenever the page is
+cross-origin isolated, and a single-threaded fallback (`public/ffmpeg/`, from `@ffmpeg/core`) for
+the rest. Multi-threading matters because most phones record HEVC by default, and software HEVC
+decoding -- which happens before ffmpeg can even start re-encoding, and isn't affected by the
+encode preset at all -- is the actual bottleneck on a single core. Cross-origin isolation comes
+from the `Cross-Origin-Opener-Policy: same-origin` / `Cross-Origin-Embedder-Policy: credentialless`
+headers set in `next.config.ts`; `credentialless` specifically avoids breaking the YouTube iframe
+embed in `VideoPlayer` (unlike the stricter `require-corp`, it doesn't need YouTube's own opt-in).
+Browsers that don't support `credentialless` just end up not cross-origin isolated, which
+`video-compress.ts` treats as a normal fallback to the single-threaded core. If compression fails
+for any reason (an unsupported format, a browser without WASM support, a bug), the original file
+uploads as-is instead of blocking the set from being logged at all.
 
 Because the video is already shrunk before it's uploaded, the raw-file cap can afford to be
 generous — 2048MB (2GB) by default, covering even a multi-minute 4K phone recording — while what
