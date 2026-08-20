@@ -81,6 +81,14 @@ export async function compressVideo(
       "30",
       "-c:v",
       "libx264",
+      // Without this, libx264 preserves the source's bit depth -- most phones shoot HDR by
+      // default (10-bit HEVC), and re-encoding that without forcing 8-bit here produces "H.264
+      // High 10" output, a profile almost no hardware decoder (including Android's) supports.
+      // Confirmed by direct repro: same command minus this flag produced yuv420p10le/High 10
+      // output that failed with "no video with supported format"; adding it produces a normal
+      // 8-bit yuv420p stream every browser can play.
+      "-pix_fmt",
+      "yuv420p",
       "-preset",
       "ultrafast",
       "-crf",
