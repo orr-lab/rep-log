@@ -191,23 +191,52 @@ function computeTargetSize(storedWidth: number, storedHeight: number, rotation: 
   };
 }
 
-async function pickSupportedCodec(width: number, height: number): Promise<string> {
+/** Picks a supported AVC codec/config, preferring real hardware acceleration but falling back to
+ *  software rather than giving up entirely. Confirmed against a real device (desktop Firefox):
+ *  it treats `hardwareAcceleration: "prefer-hardware"` as something much closer to a hard
+ *  requirement than a hint -- isConfigSupported returned unsupported for every candidate with
+ *  that hint set, on a browser that (confirmed separately, with the hint removed) can do AVC
+ *  encoding in software via WebCodecs just fine. So: try every candidate with the hint first (to
+ *  get real hardware where a browser actually honors the hint as a preference), and only if none
+ *  of those are supported, retry the same candidates without it -- landing on software WebCodecs
+ *  rather than falling all the way back to ffmpeg.wasm, which is slower than either. */
+async function pickSupportedCodec(
+  width: number,
+  height: number
+): Promise<{ codec: string; hardwareAcceleration?: HardwareAcceleration }> {
   const candidates = ["avc1.4d0020", "avc1.42001f", "avc1.420015"];
-  for (const codec of candidates) {
-    const support = await VideoEncoder.isConfigSupported({
-      codec,
-      width,
-      height,
-      bitrate: TARGET_BITRATE,
-      framerate: TARGET_FPS,
-      // A hint, not a requirement -- isConfigSupported still returns true for configs only a
-      // software encoder can handle, so this doesn't reject anything, but it does make browsers
-      // that would otherwise default to software actually reach for hardware where available.
-      hardwareAcceleration: "prefer-hardware",
-    });
-    if (support.supported) return codec;
+  for (const hardwareAcceleration of ["prefer-hardware", undefined] as const) {
+    for (const codec of candidates) {
+      const support = await VideoEncoder.isConfigSupported({
+        codec,
+        width,
+        height,
+        bitrate: TARGET_BITRATE,
+        framerate: TARGET_FPS,
+        ...(hardwareAcceleration ? { hardwareAcceleration } : {}),
+      });
+      if (support.supported) return { codec, hardwareAcceleration };
+    }
   }
   throw new Error("No supported hardware/software AVC encoder configuration found.");
+}
+
+/** Same with-hint-then-without fallback as pickSupportedCodec, for the decode side -- returns
+ *  whichever hardwareAcceleration setting isConfigSupported actually accepts for this source. */
+async function pickSupportedDecoderHwAccel(
+  video: VideoTrackInfo
+): Promise<HardwareAcceleration | undefined> {
+  for (const hardwareAcceleration of ["prefer-hardware", undefined] as const) {
+    const support = await VideoDecoder.isConfigSupported({
+      codec: video.codec,
+      codedWidth: video.width,
+      codedHeight: video.height,
+      description: video.description,
+      ...(hardwareAcceleration ? { hardwareAcceleration } : {}),
+    });
+    if (support.supported) return hardwareAcceleration;
+  }
+  throw new Error(`No supported decoder for source codec ${video.codec}.`);
 }
 
 export async function compressVideoWebCodecs(
@@ -224,18 +253,8 @@ export async function compressVideoWebCodecs(
   if (!video) throw new Error("No video track found.");
 
   const { width, height } = computeTargetSize(video.width, video.height, video.rotation);
-  const encoderCodec = await pickSupportedCodec(width, height);
-
-  const decoderSupport = await VideoDecoder.isConfigSupported({
-    codec: video.codec,
-    codedWidth: video.width,
-    codedHeight: video.height,
-    description: video.description,
-    hardwareAcceleration: "prefer-hardware",
-  });
-  if (!decoderSupport.supported) {
-    throw new Error(`No supported decoder for source codec ${video.codec}.`);
-  }
+  const { codec: encoderCodec, hardwareAcceleration: encoderHwAccel } = await pickSupportedCodec(width, height);
+  const decoderHwAccel = await pickSupportedDecoderHwAccel(video);
 
   const muxer = new Muxer({
     target: new ArrayBufferTarget(),
@@ -277,7 +296,7 @@ export async function compressVideoWebCodecs(
     height,
     bitrate: TARGET_BITRATE,
     framerate: TARGET_FPS,
-    hardwareAcceleration: "prefer-hardware",
+    ...(encoderHwAccel ? { hardwareAcceleration: encoderHwAccel } : {}),
   });
 
   const decoderErrors: Error[] = [];
@@ -298,7 +317,7 @@ export async function compressVideoWebCodecs(
     codedWidth: video.width,
     codedHeight: video.height,
     description: video.description,
-    hardwareAcceleration: "prefer-hardware",
+    ...(decoderHwAccel ? { hardwareAcceleration: decoderHwAccel } : {}),
   });
 
   for (const sample of videoSamples) {
