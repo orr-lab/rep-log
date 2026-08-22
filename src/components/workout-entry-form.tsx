@@ -241,7 +241,10 @@ export function WorkoutEntryForm({
       const seconds = ((performance.now() - compressStart) / 1000).toFixed(1);
       toast.message(
         `Compressed via ${result.method} in ${seconds}s` +
-          (result.fallbackReason ? ` (webcodecs failed: ${result.fallbackReason})` : "")
+          (result.fallbackReason ? ` (webcodecs failed: ${result.fallbackReason})` : ""),
+        // Stays on screen until manually dismissed -- the "Video uploaded" toast that follows
+        // right after would otherwise push this off-screen before there's time to read it.
+        { duration: Infinity }
       );
       // Only keep the compressed version if it's actually smaller -- an already-efficient
       // source file can occasionally come out larger after a lossy re-encode, and there's no
@@ -255,7 +258,7 @@ export function WorkoutEntryForm({
       // just console.error) so this is diagnosable from a phone with no devtools access.
       const message = err instanceof Error ? err.message : String(err);
       console.error("Video compression failed, uploading the original file instead:", err);
-      toast.message(`Compression failed, uploading original file: ${message}`);
+      toast.message(`Compression failed, uploading original file: ${message}`, { duration: Infinity });
     } finally {
       setCompressing(false);
     }

@@ -98,7 +98,10 @@ export function AdditionalVideoSlot({
         const seconds = ((performance.now() - compressStart) / 1000).toFixed(1);
         toast.message(
           `Compressed via ${result.method} in ${seconds}s` +
-            (result.fallbackReason ? ` (webcodecs failed: ${result.fallbackReason})` : "")
+            (result.fallbackReason ? ` (webcodecs failed: ${result.fallbackReason})` : ""),
+          // Stays on screen until manually dismissed -- the "Video uploaded" toast that follows
+          // right after would otherwise push this off-screen before there's time to read it.
+          { duration: Infinity }
         );
         if (result.compressedBytes < result.originalBytes) {
           uploadFile = result.file;
@@ -106,7 +109,7 @@ export function AdditionalVideoSlot({
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         console.error("Video compression failed, uploading the original file instead:", err);
-        toast.message(`Compression failed, uploading original file: ${message}`);
+        toast.message(`Compression failed, uploading original file: ${message}`, { duration: Infinity });
       } finally {
         setCompressing(false);
       }
