@@ -56,6 +56,17 @@ function outputFileName(originalName: string): string {
   return `${base || "video"}.mp4`;
 }
 
+// Serializes every compressVideo() call app-wide, regardless of how many videos are being
+// compressed at once (e.g. the primary video and an "add another video" slot dropped around the
+// same time). Confirmed necessary from a real report: two concurrent compressions both stuck at
+// 100% then crawling to 140+ seconds each (vs. ~60s alone) -- almost certainly two WebCodecs
+// sessions contending for the same limited hardware codec slot, and/or two calls sharing the one
+// ffmpeg.wasm instance (loadFFmpeg above returns a single cached instance; it was never designed
+// to run two exec()s at once). Chaining onto this tail promise means each call waits for the
+// previous one to fully finish before it even starts; queueTail itself never rejects; it's a
+// pure timing gate, so an error in one compression doesn't stall the ones queued behind it.
+let queueTail: Promise<void> = Promise.resolve();
+
 /** Re-encodes a video client-side (H.264/AAC, capped at 720p/30fps, CRF 28) before upload, so
  *  the bytes that actually hit Blob storage -- and get re-transferred every time the video is
  *  watched or sent to Gemini for AI feedback -- are meaningfully smaller than whatever a phone
@@ -66,18 +77,27 @@ function outputFileName(originalName: string): string {
  *  Failure of the whole thing is always non-fatal from the caller's side -- a compression bug
  *  should never block logging a set, so callers should catch and fall back to uploading the
  *  original file. */
-export async function compressVideo(
+export function compressVideo(
   file: File,
   onProgress?: (ratio: number) => void
 ): Promise<CompressResult> {
-  try {
-    return await compressVideoWebCodecs(file, onProgress);
-  } catch (err) {
-    const reason = err instanceof Error ? err.message : String(err);
-    console.error("WebCodecs compression failed, falling back to ffmpeg.wasm:", err);
-    const result = await compressVideoFfmpeg(file, onProgress);
-    return { ...result, fallbackReason: reason };
-  }
+  const run = async (): Promise<CompressResult> => {
+    try {
+      return await compressVideoWebCodecs(file, onProgress);
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      console.error("WebCodecs compression failed, falling back to ffmpeg.wasm:", err);
+      const result = await compressVideoFfmpeg(file, onProgress);
+      return { ...result, fallbackReason: reason };
+    }
+  };
+
+  const result = queueTail.then(run, run);
+  queueTail = result.then(
+    () => undefined,
+    () => undefined
+  );
+  return result;
 }
 
 /** ffmpeg.wasm fallback path -- single-threaded (see loadFFmpeg above), so wall-clock encode
