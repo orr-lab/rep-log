@@ -60,7 +60,6 @@ export default async function NewEntryPage({
 
       <WorkoutEntryForm
         mode="create"
-        userId={session.userId}
         uploadsEnabled={uploadsEnabled}
         maxUploadBytes={maxUploadBytes}
         climbingMode={climbingMode}

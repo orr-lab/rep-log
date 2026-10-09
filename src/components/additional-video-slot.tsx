@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useDropzone } from "react-dropzone";
-import { upload } from "@vercel/blob/client";
 import { toast } from "sonner";
 import { UploadCloud, Link2 } from "lucide-react";
 
@@ -11,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { extractYouTubeId } from "@/lib/youtube";
 import { compressVideo } from "@/lib/video-compress";
+import { uploadVideoToR2 } from "@/lib/r2-upload";
 import type { VideoSource } from "@/lib/types";
 
 function formatMaxSize(bytes: number) {
@@ -37,13 +37,11 @@ export interface SavedAdditionalVideo {
 export function AdditionalVideoSlot({
   uploadsEnabled,
   maxUploadBytes,
-  userId,
   onSave,
   onCancel,
 }: {
   uploadsEnabled: boolean;
   maxUploadBytes: number;
-  userId: string;
   onSave: (video: SavedAdditionalVideo) => void;
   onCancel: () => void;
 }) {
@@ -117,10 +115,8 @@ export function AdditionalVideoSlot({
       setUploading(true);
       setUploadProgress(0);
       try {
-        const result = await upload(`${userId}/${uploadFile.name}`, uploadFile, {
-          access: "public",
-          handleUploadUrl: "/api/blob/upload",
-          onUploadProgress: ({ percentage }) => setUploadProgress(percentage),
+        const result = await uploadVideoToR2(uploadFile, {
+          onUploadProgress: (percentage) => setUploadProgress(percentage),
         });
         setVideoUrl(result.url);
         toast.success("Video uploaded");
@@ -136,7 +132,7 @@ export function AdditionalVideoSlot({
         setUploading(false);
       }
     },
-    [userId, maxUploadBytes, onSave]
+    [maxUploadBytes, onSave]
   );
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({

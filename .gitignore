@@ -46,3 +46,6 @@ next-env.d.ts
 
 .vercel
 .env*
+
+# local migration backups (videos, DB exports, manifests) -- never commit
+backup/

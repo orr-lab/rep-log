@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { del } from "@vercel/blob";
 import { prisma } from "@/lib/prisma";
 import { entryUpdateSchema } from "@/lib/validation";
 import { getSession } from "@/lib/session";
+import { deleteStoredVideo } from "@/lib/video-storage";
 
 export async function GET(
   _request: NextRequest,
@@ -48,7 +48,8 @@ export async function PATCH(
 
   // Presence of `videos` (even []) means "replace the full set of extra videos" -- its absence
   // (e.g. a plain isFavorite toggle) leaves them untouched. Any UPLOAD-sourced videos being
-  // dropped get their Blob storage cleaned up once the DB write has actually committed.
+  // dropped get their stored file (R2, or Blob for older uploads) cleaned up once the DB write
+  // has actually committed.
   let staleUploadUrls: string[] = [];
   try {
     const entry = await prisma.$transaction(async (tx) => {
@@ -77,7 +78,7 @@ export async function PATCH(
       });
     });
 
-    await Promise.all(staleUploadUrls.map((url) => del(url).catch(() => {})));
+    await Promise.all(staleUploadUrls.map(deleteStoredVideo));
 
     return NextResponse.json(entry);
   } catch {
@@ -103,12 +104,12 @@ export async function DELETE(
   }
 
   if (entry.videoSource === "UPLOAD" && entry.videoUrl) {
-    await del(entry.videoUrl).catch(() => {});
+    await deleteStoredVideo(entry.videoUrl);
   }
   await Promise.all(
     entry.videos
       .filter((v) => v.videoSource === "UPLOAD")
-      .map((v) => del(v.videoUrl).catch(() => {}))
+      .map((v) => deleteStoredVideo(v.videoUrl))
   );
 
   try {

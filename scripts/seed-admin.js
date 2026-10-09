@@ -6,6 +6,7 @@ require("dotenv").config({ path: [".env.local", ".env"] });
 const { randomBytes, scrypt } = require("node:crypto");
 const { promisify } = require("node:util");
 const { PrismaClient } = require("@prisma/client");
+const { PrismaNeon } = require("@prisma/adapter-neon");
 
 const scryptAsync = promisify(scrypt);
 const KEY_LENGTH = 64;
@@ -16,8 +17,18 @@ async function hashPassword(plain) {
   return `${salt}:${derived.toString("hex")}`;
 }
 
+// Remote (Neon) databases go over WebSockets on port 443 via the Neon driver adapter -- some
+// networks block outbound 5432, which the plain engine needs. Localhost uses the normal engine.
+function createPrismaClient() {
+  const url = process.env.DATABASE_URL;
+  if (!url) throw new Error("DATABASE_URL must be set.");
+  const { hostname } = new URL(url);
+  if (hostname === "localhost" || hostname === "127.0.0.1") return new PrismaClient();
+  return new PrismaClient({ adapter: new PrismaNeon({ connectionString: url }) });
+}
+
 async function main() {
-  const prisma = new PrismaClient();
+  const prisma = createPrismaClient();
 
   const sitePassword = process.env.SITE_PASSWORD;
   if (!sitePassword) {

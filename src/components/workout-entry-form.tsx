@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useDropzone } from "react-dropzone";
-import { upload } from "@vercel/blob/client";
 import { toast } from "sonner";
 import { UploadCloud, Link2, Film, X, Loader2 } from "lucide-react";
 
@@ -29,6 +28,7 @@ import { AutocompleteInput } from "@/components/autocomplete-input";
 import { extractYouTubeId, youtubeEmbedUrl } from "@/lib/youtube";
 import { extractVideoCreationDate } from "@/lib/video-metadata";
 import { compressVideo } from "@/lib/video-compress";
+import { uploadVideoToR2 } from "@/lib/r2-upload";
 import { COMMON_EXERCISES, COMMON_TAGS } from "@/lib/exercise-catalog";
 import { GRADE_OPTIONS, formatGrade, COMMON_CLIMBING_TAGS } from "@/lib/climbing";
 import { findExercisePreset } from "@/lib/types";
@@ -65,7 +65,6 @@ export interface PlanPrefill {
 export function WorkoutEntryForm({
   mode,
   initialData,
-  userId,
   uploadsEnabled,
   maxUploadBytes,
   climbingMode,
@@ -73,7 +72,6 @@ export function WorkoutEntryForm({
 }: {
   mode: "create" | "edit";
   initialData?: WorkoutEntry;
-  userId: string;
   uploadsEnabled: boolean;
   /** Admin-configurable raw-upload ceiling (see Settings > Storage), in bytes. */
   maxUploadBytes: number;
@@ -266,10 +264,8 @@ export function WorkoutEntryForm({
     setUploading(true);
     setUploadProgress(0);
     try {
-      const result = await upload(`${userId}/${uploadFile.name}`, uploadFile, {
-        access: "public",
-        handleUploadUrl: "/api/blob/upload",
-        onUploadProgress: ({ percentage }) => setUploadProgress(percentage),
+      const result = await uploadVideoToR2(uploadFile, {
+        onUploadProgress: (percentage) => setUploadProgress(percentage),
       });
       setVideoUrl(result.url);
       toast.success("Video uploaded");
@@ -278,7 +274,7 @@ export function WorkoutEntryForm({
     } finally {
       setUploading(false);
     }
-  }, [userId, mode, maxUploadBytes]);
+  }, [mode, maxUploadBytes]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -621,7 +617,6 @@ export function WorkoutEntryForm({
             <AdditionalVideoSlot
               uploadsEnabled={uploadsEnabled}
               maxUploadBytes={maxUploadBytes}
-              userId={userId}
               onCancel={() => setAddingVideo(false)}
               onSave={(video) => {
                 setAdditionalVideos((prev) => [

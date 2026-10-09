@@ -1,7 +1,7 @@
-import { del } from "@vercel/blob";
 import { prisma } from "@/lib/prisma";
 import { hashPassword, verifyPassword } from "@/lib/password-hash";
 import { DEFAULT_MAX_UPLOAD_MB, mbToBytes } from "@/lib/validation";
+import { deleteStoredVideo } from "@/lib/video-storage";
 
 export class PasswordInUseError extends Error {
   constructor() {
@@ -115,8 +115,8 @@ export async function deleteUserCascade(userId: string): Promise<void> {
     select: { videoUrl: true },
   });
   await Promise.all([
-    ...entries.map((e) => del(e.videoUrl).catch(() => {})),
-    ...extraVideos.map((v) => del(v.videoUrl).catch(() => {})),
+    ...entries.map((e) => deleteStoredVideo(e.videoUrl)),
+    ...extraVideos.map((v) => deleteStoredVideo(v.videoUrl)),
   ]);
 
   await prisma.user.delete({ where: { id: userId } });

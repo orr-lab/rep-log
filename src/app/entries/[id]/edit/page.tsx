@@ -45,7 +45,6 @@ export default async function EditEntryPage({
       <WorkoutEntryForm
         mode="edit"
         initialData={entry}
-        userId={session.userId}
         uploadsEnabled={uploadsEnabled}
         maxUploadBytes={maxUploadBytes}
         climbingMode={climbingMode}
