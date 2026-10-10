@@ -239,6 +239,14 @@ async function pickSupportedDecoderHwAccel(
   throw new Error(`No supported decoder for source codec ${video.codec}.`);
 }
 
+/** How long the decode/encode pipeline may go without a single decoded frame or encoded chunk
+ *  before it's treated as hung. Confirmed from a real report: in Safari on macOS, a video could
+ *  decode every frame (progress at 100%) and then never finish -- no error, no rejection, the
+ *  awaited flush just never settled -- leaving the form stuck on "Compressing... 100%" forever.
+ *  Even a slow software encoder emits a chunk every few hundred ms, so 20s of silence means it
+ *  isn't coming back, and failing lets compressVideo() fall back to ffmpeg.wasm instead. */
+const STALL_TIMEOUT_MS = 20_000;
+
 export async function compressVideoWebCodecs(
   file: File,
   onProgress?: (ratio: number) => void
@@ -272,80 +280,159 @@ export async function compressVideoWebCodecs(
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("Could not create a 2D canvas context.");
 
-  let encodedCount = 0;
+  // Errors raised inside codec callbacks can't propagate to this function on their own (a throw
+  // in an output/error callback just vanishes into the event loop, which is how an error could
+  // previously leave the flush awaits hanging), so they're recorded here and every await below
+  // goes through guard(), which rejects as soon as one shows up -- or when nothing has happened
+  // for STALL_TIMEOUT_MS.
+  let fatalError: Error | null = null;
+  const fail = (e: unknown) => {
+    fatalError ??= e instanceof Error ? e : new Error(String(e));
+  };
+  let lastActivity = performance.now();
+  const touch = () => {
+    lastActivity = performance.now();
+  };
+  const guard = <T,>(promise: Promise<T>, stage: string): Promise<T> => {
+    touch();
+    return new Promise<T>((resolve, reject) => {
+      const timer = setInterval(() => {
+        if (fatalError) {
+          clearInterval(timer);
+          reject(fatalError);
+        } else if (performance.now() - lastActivity > STALL_TIMEOUT_MS) {
+          clearInterval(timer);
+          reject(new Error(`WebCodecs stalled while ${stage} (no progress for ${STALL_TIMEOUT_MS / 1000}s).`));
+        }
+      }, 250);
+      promise.then(
+        (value) => {
+          clearInterval(timer);
+          if (fatalError) reject(fatalError);
+          else resolve(value);
+        },
+        (err) => {
+          clearInterval(timer);
+          reject(fatalError ?? err);
+        }
+      );
+    });
+  };
+
+  // Progress is the average of frames decoded and chunks encoded, held just under 100% until the
+  // file is actually muxed -- "100%" used to mean only "every frame decoded", with the encoder
+  // flush and muxing still to come, which made a hang there look like a finished compression.
   const totalFrames = videoSamples.length || 1;
+  let decodedCount = 0;
+  let encodedCount = 0;
+  const reportProgress = () => onProgress?.(Math.min(0.99, (decodedCount + encodedCount) / (2 * totalFrames)));
 
-  const encoder = new VideoEncoder({
-    output: (chunk, meta) => {
-      // mp4-muxer's own video-track sample-description writer reads meta.decoderConfig without
-      // a null check (crashes with "Cannot read properties of null (reading 'colorSpace')" if
-      // it's ever missing) -- confirmed some encoder configs in some browsers don't reliably
-      // populate it on every chunk, even though the first chunk after configure() should per
-      // spec. Falling back to a minimal decoderConfig (no colorSpace, which mp4-muxer treats as
-      // "skip the colr box" -- an optional, cosmetic box) keeps this from crashing regardless.
-      const safeMeta = meta?.decoderConfig ? meta : { ...meta, decoderConfig: { codec: encoderCodec, codedWidth: width, codedHeight: height } };
-      muxer.addVideoChunk(chunk, safeMeta);
-    },
-    error: (e) => {
-      throw e;
-    },
-  });
-  encoder.configure({
-    codec: encoderCodec,
-    width,
-    height,
-    bitrate: TARGET_BITRATE,
-    framerate: TARGET_FPS,
-    ...(encoderHwAccel ? { hardwareAcceleration: encoderHwAccel } : {}),
-  });
+  let decoder: VideoDecoder | null = null;
+  let encoder: VideoEncoder | null = null;
+  try {
+    const enc = new VideoEncoder({
+      output: (chunk, meta) => {
+        touch();
+        try {
+          // mp4-muxer's own video-track sample-description writer reads meta.decoderConfig
+          // without a null check (crashes with "Cannot read properties of null (reading
+          // 'colorSpace')" if it's ever missing) -- confirmed some encoder configs in some
+          // browsers don't reliably populate it on every chunk, even though the first chunk
+          // after configure() should per spec. Falling back to a minimal decoderConfig (no
+          // colorSpace, which mp4-muxer treats as "skip the colr box" -- an optional, cosmetic
+          // box) keeps this from crashing regardless.
+          const safeMeta = meta?.decoderConfig ? meta : { ...meta, decoderConfig: { codec: encoderCodec, codedWidth: width, codedHeight: height } };
+          muxer.addVideoChunk(chunk, safeMeta);
+          encodedCount += 1;
+          reportProgress();
+        } catch (e) {
+          fail(e);
+        }
+      },
+      error: fail,
+    });
+    encoder = enc;
+    enc.configure({
+      codec: encoderCodec,
+      width,
+      height,
+      bitrate: TARGET_BITRATE,
+      framerate: TARGET_FPS,
+      ...(encoderHwAccel ? { hardwareAcceleration: encoderHwAccel } : {}),
+    });
 
-  const decoderErrors: Error[] = [];
-  const decoder = new VideoDecoder({
-    output: (frame) => {
-      ctx.drawImage(frame as unknown as CanvasImageSource, 0, 0, width, height);
-      const scaled = new VideoFrame(canvas, { timestamp: frame.timestamp, duration: frame.duration ?? undefined });
-      frame.close();
-      encoder.encode(scaled, { keyFrame: encodedCount % (TARGET_FPS * 2) === 0 });
-      scaled.close();
-      encodedCount += 1;
-      onProgress?.(Math.min(1, encodedCount / totalFrames));
-    },
-    error: (e) => decoderErrors.push(e as Error),
-  });
-  decoder.configure({
-    codec: video.codec,
-    codedWidth: video.width,
-    codedHeight: video.height,
-    description: video.description,
-    ...(decoderHwAccel ? { hardwareAcceleration: decoderHwAccel } : {}),
-  });
+    const dec = new VideoDecoder({
+      output: (frame) => {
+        touch();
+        try {
+          if (fatalError || enc.state !== "configured") return;
+          ctx.drawImage(frame as unknown as CanvasImageSource, 0, 0, width, height);
+          const scaled = new VideoFrame(canvas, { timestamp: frame.timestamp, duration: frame.duration ?? undefined });
+          try {
+            enc.encode(scaled, { keyFrame: decodedCount % (TARGET_FPS * 2) === 0 });
+          } finally {
+            scaled.close();
+          }
+          decodedCount += 1;
+          reportProgress();
+        } catch (e) {
+          fail(e);
+        } finally {
+          frame.close();
+        }
+      },
+      error: fail,
+    });
+    decoder = dec;
+    dec.configure({
+      codec: video.codec,
+      codedWidth: video.width,
+      codedHeight: video.height,
+      description: video.description,
+      ...(decoderHwAccel ? { hardwareAcceleration: decoderHwAccel } : {}),
+    });
 
-  for (const sample of videoSamples) {
-    decoder.decode(
-      new EncodedVideoChunk({
-        type: sample.isKey ? "key" : "delta",
-        timestamp: sample.timestampUs,
-        duration: sample.durationUs,
-        data: sample.data,
-      })
-    );
-  }
-  await decoder.flush();
-  decoder.close();
-  if (decoderErrors.length > 0) throw decoderErrors[0];
+    for (const sample of videoSamples) {
+      if (fatalError) throw fatalError;
+      dec.decode(
+        new EncodedVideoChunk({
+          type: sample.isKey ? "key" : "delta",
+          timestamp: sample.timestampUs,
+          duration: sample.durationUs,
+          data: sample.data,
+        })
+      );
+    }
+    await guard(dec.flush(), "decoding");
+    dec.close();
+    await guard(enc.flush(), "finishing the encode");
+    enc.close();
+    if (fatalError) throw fatalError;
+    if (encodedCount === 0) throw new Error("The encoder produced no output.");
 
-  await encoder.flush();
-  encoder.close();
+    if (audio) {
+      for (const sample of audioSamples) {
+        muxer.addAudioChunkRaw(sample.data, sample.isKey ? "key" : "delta", sample.timestampUs, sample.durationUs);
+      }
+    }
 
-  if (audio) {
-    for (const sample of audioSamples) {
-      muxer.addAudioChunkRaw(sample.data, sample.isKey ? "key" : "delta", sample.timestampUs, sample.durationUs);
+    muxer.finalize();
+    const { buffer } = muxer.target as InstanceType<typeof ArrayBufferTarget>;
+    const outputFile = new File([buffer], file.name.replace(/\.[^.]+$/, "") + ".mp4", { type: "video/mp4" });
+    onProgress?.(1);
+
+    return { file: outputFile, originalBytes: file.size, compressedBytes: outputFile.size, method: "webcodecs" };
+  } finally {
+    // Release the (possibly hardware) codec sessions on every exit path, so a failed or stalled
+    // attempt doesn't keep holding them while the ffmpeg.wasm fallback runs.
+    for (const codec of [decoder, encoder]) {
+      if (codec && codec.state !== "closed") {
+        try {
+          codec.close();
+        } catch {
+          // Already torn down by the browser.
+        }
+      }
     }
   }
-
-  muxer.finalize();
-  const { buffer } = muxer.target as InstanceType<typeof ArrayBufferTarget>;
-  const outputFile = new File([buffer], file.name.replace(/\.[^.]+$/, "") + ".mp4", { type: "video/mp4" });
-
-  return { file: outputFile, originalBytes: file.size, compressedBytes: outputFile.size, method: "webcodecs" };
 }

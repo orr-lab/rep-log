@@ -4,9 +4,13 @@ import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { fetchFile, toBlobURL } from "@ffmpeg/util";
 import { compressVideoWebCodecs } from "./video-compress-webcodecs";
 
-// Self-hosted from public/ffmpeg/ (copied from node_modules/@ffmpeg/core's UMD build) rather than
+// Self-hosted from public/ffmpeg/ (copied from node_modules/@ffmpeg/core/dist/esm/) rather than
 // pulled from a CDN at runtime -- one less external dependency for something that runs on every
-// upload. This is the single-threaded core build specifically: a multi-threaded core (@ffmpeg/
+// upload. It has to be the ESM build: @ffmpeg/ffmpeg always starts its worker as a module worker,
+// where importScripts() is unavailable, so it falls back to import()ing the core and reading its
+// default export -- which the UMD build doesn't have. With the UMD file here, every load failed
+// with "failed to import ffmpeg-core.js", so the fallback never actually ran. (The .wasm is
+// byte-identical between the two builds.) This is the single-threaded core build specifically: a multi-threaded core (@ffmpeg/
 // core-mt) was tried here and reverted -- it reliably hung indefinitely during its worker-thread
 // pool init when self-hosted this way (reproduced locally: 40+ seconds, zero progress, no
 // completion), and in production that meant compression silently "failed" and fell back to
@@ -16,17 +20,50 @@ import { compressVideoWebCodecs } from "./video-compress-webcodecs";
 const CORE_JS_URL = "/ffmpeg/ffmpeg-core.js";
 const CORE_WASM_URL = "/ffmpeg/ffmpeg-core.wasm";
 
+// Watchdogs for the fallback path, so a hung ffmpeg.wasm can't leave the upload form stuck on
+// "Compressing..." forever either: the core download + init gets LOAD_TIMEOUT_MS in total, and a
+// running exec() is killed if it emits no progress or log output for EXEC_STALL_TIMEOUT_MS
+// (ffmpeg logs a stats line roughly every half second while it's actually encoding).
+const LOAD_TIMEOUT_MS = 90_000;
+const EXEC_STALL_TIMEOUT_MS = 30_000;
+
 let ffmpegPromise: Promise<FFmpeg> | null = null;
+
+/** Kills the worker and drops the cached instance, so the next call starts from scratch. */
+function discardFFmpeg(ffmpeg: FFmpeg) {
+  try {
+    ffmpeg.terminate();
+  } catch {
+    // Never finished loading -- nothing to terminate.
+  }
+  ffmpegPromise = null;
+}
 
 function loadFFmpeg(): Promise<FFmpeg> {
   if (!ffmpegPromise) {
     ffmpegPromise = (async () => {
       const ffmpeg = new FFmpeg();
-      const [coreURL, wasmURL] = await Promise.all([
-        toBlobURL(CORE_JS_URL, "text/javascript"),
-        toBlobURL(CORE_WASM_URL, "application/wasm"),
-      ]);
-      await ffmpeg.load({ coreURL, wasmURL });
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          discardFFmpeg(ffmpeg);
+          reject(new Error(`ffmpeg.wasm took over ${LOAD_TIMEOUT_MS / 1000}s to load.`));
+        }, LOAD_TIMEOUT_MS);
+      });
+      try {
+        await Promise.race([
+          (async () => {
+            const [coreURL, wasmURL] = await Promise.all([
+              toBlobURL(CORE_JS_URL, "text/javascript"),
+              toBlobURL(CORE_WASM_URL, "application/wasm"),
+            ]);
+            await ffmpeg.load({ coreURL, wasmURL });
+          })(),
+          timeout,
+        ]);
+      } finally {
+        clearTimeout(timer);
+      }
       return ffmpeg;
     })();
     // Don't cache a failed load -- let the next call retry from scratch.
@@ -87,6 +124,9 @@ export function compressVideo(
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       console.error("WebCodecs compression failed, falling back to ffmpeg.wasm:", err);
+      // Restart the progress bar for the second attempt rather than leaving it wherever the
+      // failed one stopped (often 99%, which reads as "stuck").
+      onProgress?.(0);
       const result = await compressVideoFfmpeg(file, onProgress);
       return { ...result, fallbackReason: reason };
     }
@@ -113,13 +153,30 @@ async function compressVideoFfmpeg(
   const inputName = `input-${Date.now()}`;
   const outputName = `output-${Date.now()}.mp4`;
 
+  let lastActivity = performance.now();
+  const touch = () => {
+    lastActivity = performance.now();
+  };
   const handleProgress = ({ progress }: { progress: number }) => {
+    touch();
     if (Number.isFinite(progress)) onProgress?.(Math.min(1, Math.max(0, progress)));
   };
   ffmpeg.on("progress", handleProgress);
+  ffmpeg.on("log", touch);
+
+  let stalled = false;
+  const watchdog = setInterval(() => {
+    if (performance.now() - lastActivity > EXEC_STALL_TIMEOUT_MS) {
+      clearInterval(watchdog);
+      stalled = true;
+      // Rejects the pending writeFile/exec/readFile call, which lands in the catch below.
+      discardFFmpeg(ffmpeg);
+    }
+  }, 1000);
 
   try {
     await ffmpeg.writeFile(inputName, await fetchFile(file));
+    touch();
     await ffmpeg.exec([
       "-i",
       inputName,
@@ -167,9 +224,16 @@ async function compressVideoFfmpeg(
     const compressed = new File([bytes], outputFileName(file.name), { type: "video/mp4" });
 
     return { file: compressed, originalBytes: file.size, compressedBytes: compressed.size, method: "ffmpeg" };
+  } catch (err) {
+    if (stalled) throw new Error(`ffmpeg.wasm stalled (no progress for ${EXEC_STALL_TIMEOUT_MS / 1000}s).`);
+    throw err;
   } finally {
+    clearInterval(watchdog);
     ffmpeg.off("progress", handleProgress);
-    await ffmpeg.deleteFile(inputName).catch(() => {});
-    await ffmpeg.deleteFile(outputName).catch(() => {});
+    ffmpeg.off("log", touch);
+    if (!stalled) {
+      await ffmpeg.deleteFile(inputName).catch(() => {});
+      await ffmpeg.deleteFile(outputName).catch(() => {});
+    }
   }
 }
