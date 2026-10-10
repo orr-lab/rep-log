@@ -1,5 +1,11 @@
 import { randomBytes } from "node:crypto";
-import { DeleteObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import {
+  CopyObjectCommand,
+  DeleteObjectCommand,
+  HeadObjectCommand,
+  PutObjectCommand,
+  S3Client,
+} from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 // Cloudflare R2 (S3-compatible) storage for uploaded videos. Objects live in a public bucket served
@@ -49,10 +55,27 @@ export function r2KeyFromUrl(url: string): string | null {
   return key ? decodeURIComponent(key) : null;
 }
 
-/** `videos/<random>.mp4`. Deliberately nothing from the original filename -- phone cameras name
+/** New uploads land under pending/ and only move to videos/ once an entry referencing them is
+ *  saved (see promotePendingUpload), so an abandoned form leaves nothing under videos/. A bucket
+ *  lifecycle rule deletes anything still under pending/ after a day (see README). */
+export const PENDING_PREFIX = "pending/";
+export const VIDEOS_PREFIX = "videos/";
+
+/** `pending/<random>.mp4`. Deliberately nothing from the original filename -- phone cameras name
  *  files after the recording time (e.g. PXL_20260921_144039930.mp4), and these URLs are public. */
-export function newVideoKey(): string {
-  return `videos/${randomBytes(12).toString("hex")}.mp4`;
+export function newPendingVideoKey(): string {
+  return `${PENDING_PREFIX}${randomBytes(12).toString("hex")}.mp4`;
+}
+
+const PENDING_KEY_PATTERN = /^pending\/[0-9a-f]{24}\.mp4$/;
+
+export function isPendingVideoKey(key: string): boolean {
+  return PENDING_KEY_PATTERN.test(key);
+}
+
+/** `pending/<random>.mp4` -> `videos/<random>.mp4`. */
+export function finalKeyForPending(pendingKey: string): string {
+  return VIDEOS_PREFIX + pendingKey.slice(PENDING_PREFIX.length);
 }
 
 /** Stored on every uploaded video and sent back by R2 on each GET, so Cloudflare's edge (and the
@@ -77,6 +100,37 @@ export async function presignVideoUpload(key: string, contentType: string, conte
     { expiresIn: 15 * 60, signableHeaders: new Set(["content-type", "content-length", "cache-control"]) }
   );
   return { uploadUrl, headers: { "Content-Type": contentType, "Cache-Control": VIDEO_CACHE_CONTROL } };
+}
+
+/** True if the object exists; false on 404. Other errors (auth, network) are thrown. */
+export async function r2ObjectExists(key: string): Promise<boolean> {
+  try {
+    await getR2Client().send(new HeadObjectCommand({ Bucket: getR2Bucket(), Key: key }));
+    return true;
+  } catch (error) {
+    const status = (error as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode;
+    if (status === 404) return false;
+    throw error;
+  }
+}
+
+/** Server-side copy within the bucket. Content-Type and Cache-Control are read from the source
+ *  and set explicitly (REPLACE) rather than relying on the default COPY directive, so the copy is
+ *  guaranteed to keep them. */
+export async function copyR2Object(sourceKey: string, destinationKey: string): Promise<void> {
+  const client = getR2Client();
+  const bucket = getR2Bucket();
+  const head = await client.send(new HeadObjectCommand({ Bucket: bucket, Key: sourceKey }));
+  await client.send(
+    new CopyObjectCommand({
+      Bucket: bucket,
+      Key: destinationKey,
+      CopySource: `${bucket}/${sourceKey}`,
+      MetadataDirective: "REPLACE",
+      ContentType: head.ContentType,
+      CacheControl: head.CacheControl ?? VIDEO_CACHE_CONTROL,
+    })
+  );
 }
 
 export async function deleteR2Object(key: string): Promise<void> {

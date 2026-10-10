@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { entryInputSchema } from "@/lib/validation";
 import { getSession } from "@/lib/session";
 import { isVideoUploadEnabled } from "@/lib/users";
+import { promoteEntryUploads, UploadRejectedError, type Promotions, withoutUploadToken } from "@/lib/pending-uploads";
 import type { Prisma } from "@prisma/client";
 
 export async function GET(request: NextRequest) {
@@ -57,7 +58,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
-  const { fulfillsPlanId, videos, ...data } = parsed.data;
+  const { fulfillsPlanId, videos, uploadToken, ...data } = parsed.data;
 
   if (data.videoSource === "UPLOAD" && !(await isVideoUploadEnabled())) {
     return NextResponse.json(
@@ -76,24 +77,38 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // New uploads are only accepted with their upload token, and get moved from pending/ to videos/
+  // before the row is written -- see src/lib/pending-uploads.ts. Nothing to keep on create.
+  const primary = { videoSource: data.videoSource, videoUrl: data.videoUrl, uploadToken };
+  let promotions: Promotions;
+  try {
+    promotions = await promoteEntryUploads([primary, ...videos], session.userId, new Set());
+  } catch (err) {
+    if (err instanceof UploadRejectedError) return NextResponse.json({ error: err.message }, { status: 400 });
+    throw err;
+  }
+
   try {
     // A plan can be fulfilled by any number of entries, so this is just a direct FK on create --
     // no need to also touch the plan row.
     const entry = await prisma.workoutEntry.create({
       data: {
         ...data,
+        videoUrl: primary.videoUrl,
         recordedAt: new Date(data.recordedAt),
         userId: session.userId,
         planId: fulfillsPlanId ?? null,
         videos:
           videos.length > 0
-            ? { create: videos.map((v, i) => ({ ...v, order: i })) }
+            ? { create: videos.map((v, i) => ({ ...withoutUploadToken(v), order: i })) }
             : undefined,
       },
       include: { videos: { orderBy: { order: "asc" } } },
     });
+    await promotions.commit();
     return NextResponse.json(entry, { status: 201 });
   } catch (err) {
+    await promotions.rollback();
     if (err instanceof Error && "code" in err && err.code === "P2003") {
       return NextResponse.json(
         { error: "Your account no longer exists — please log in again." },

@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getSession } from "@/lib/session";
 import { isVideoUploadEnabled, getMaxUploadBytes } from "@/lib/users";
-import { presignVideoUpload, publicUrlForKey, newVideoKey } from "@/lib/r2";
+import { presignVideoUpload, publicUrlForKey, newPendingVideoKey } from "@/lib/r2";
+import { createUploadToken } from "@/lib/pending-uploads";
 
 const ALLOWED_CONTENT_TYPES = [
   "video/mp4",
@@ -44,9 +45,16 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
 
   try {
-    const key = newVideoKey();
+    // Lands under pending/ until an entry referencing it is saved -- see src/lib/pending-uploads.ts.
+    // The token is what the entry routes (and /api/r2/discard) require to accept this upload.
+    const key = newPendingVideoKey();
     const { uploadUrl, headers } = await presignVideoUpload(key, contentType, size);
-    return NextResponse.json({ uploadUrl, headers, url: publicUrlForKey(key) });
+    return NextResponse.json({
+      uploadUrl,
+      headers,
+      url: publicUrlForKey(key),
+      uploadToken: createUploadToken(key, session.userId),
+    });
   } catch (error) {
     console.error("Failed to presign R2 upload:", error);
     return NextResponse.json({ error: "Upload failed" }, { status: 500 });

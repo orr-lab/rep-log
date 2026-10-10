@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { extractYouTubeId } from "@/lib/youtube";
 import { compressVideo } from "@/lib/video-compress";
-import { uploadVideoToR2 } from "@/lib/r2-upload";
+import { discardPendingUpload, uploadVideoToR2 } from "@/lib/r2-upload";
 import type { VideoSource } from "@/lib/types";
 
 function formatMaxSize(bytes: number) {
@@ -24,6 +24,8 @@ export interface SavedAdditionalVideo {
   videoUrl: string;
   youtubeId: string | null;
   durationSec: number | null;
+  /** Set for a new upload that's still under pending/ until the entry is saved. */
+  uploadToken?: string | null;
 }
 
 /** A single "add another video" upload/YouTube-link flow, scoped to its own local state -- a
@@ -59,6 +61,16 @@ export function AdditionalVideoSlot({
   // durationSec was when onDrop (memoized via useCallback) was created, which can be stale by
   // the time the upload actually finishes; a ref always reads the latest value.
   const durationSecRef = useRef<number | null>(null);
+  // False once this slot is unmounted (Cancel) -- an upload still in flight at that point is
+  // thrown away when it finishes instead of being attached to the entry.
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -118,6 +130,10 @@ export function AdditionalVideoSlot({
         const result = await uploadVideoToR2(uploadFile, {
           onUploadProgress: (percentage) => setUploadProgress(percentage),
         });
+        if (!mountedRef.current) {
+          discardPendingUpload(result.uploadToken);
+          return;
+        }
         setVideoUrl(result.url);
         toast.success("Video uploaded");
         onSave({
@@ -125,6 +141,7 @@ export function AdditionalVideoSlot({
           videoUrl: result.url,
           youtubeId: null,
           durationSec: durationSecRef.current,
+          uploadToken: result.uploadToken,
         });
       } catch (err) {
         setError(err instanceof Error ? err.message : "Upload failed. Please try again.");

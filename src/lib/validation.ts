@@ -8,6 +8,8 @@ export const entryVideoInputSchema = z.object({
   videoUrl: z.string().trim().min(1),
   youtubeId: z.string().trim().optional().nullable(),
   durationSec: z.number().int().positive().optional().nullable(),
+  // Set only for a new upload still under pending/ -- see src/lib/pending-uploads.ts.
+  uploadToken: z.string().max(1000).optional().nullable(),
 });
 
 export const entryInputSchema = z.object({
@@ -20,6 +22,8 @@ export const entryInputSchema = z.object({
   videoUrl: z.string().trim().min(1, "A video source is required"),
   youtubeId: z.string().trim().optional().nullable(),
   durationSec: z.number().int().positive().optional().nullable(),
+  // Same as on entryVideoInputSchema: present only when videoUrl is a new pending/ upload.
+  uploadToken: z.string().max(1000).optional().nullable(),
   sets: z.number().int().positive().optional().nullable(),
   reps: z.number().int().positive().optional().nullable(),
   tags: z.array(z.string().trim().min(1)).default([]),

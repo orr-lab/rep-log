@@ -28,7 +28,7 @@ import { AutocompleteInput } from "@/components/autocomplete-input";
 import { extractYouTubeId, youtubeEmbedUrl } from "@/lib/youtube";
 import { extractVideoCreationDate } from "@/lib/video-metadata";
 import { compressVideo } from "@/lib/video-compress";
-import { uploadVideoToR2 } from "@/lib/r2-upload";
+import { discardPendingUpload, uploadVideoToR2 } from "@/lib/r2-upload";
 import { COMMON_EXERCISES, COMMON_TAGS } from "@/lib/exercise-catalog";
 import { GRADE_OPTIONS, formatGrade, COMMON_CLIMBING_TAGS } from "@/lib/climbing";
 import { findExercisePreset } from "@/lib/types";
@@ -111,6 +111,12 @@ export function WorkoutEntryForm({
     initialData?.videoSource === "YOUTUBE" ? initialData.videoUrl : ""
   );
   const [durationSec, setDurationSec] = useState<number | null>(initialData?.durationSec ?? null);
+  // Token for a primary-video upload that's still under pending/ (see src/lib/pending-uploads.ts):
+  // sent with the save so the server moves it to videos/, or used to discard it if thrown out.
+  const [uploadToken, setUploadToken] = useState<string | null>(null);
+  // Bumped whenever the current upload is thrown out, so an upload still in flight at that moment
+  // discards itself when it finishes instead of reappearing as the entry's video.
+  const uploadGenerationRef = useRef(0);
   const [durationDetected, setDurationDetected] = useState(false);
   const [replacingVideo, setReplacingVideo] = useState(mode === "create");
 
@@ -215,6 +221,7 @@ export function WorkoutEntryForm({
     setVideoError(null);
     setVideoUrl("");
     setDurationDetected(false);
+    const generation = uploadGenerationRef.current;
     const objectUrl = URL.createObjectURL(file);
     setFilePreview(objectUrl);
 
@@ -267,7 +274,12 @@ export function WorkoutEntryForm({
       const result = await uploadVideoToR2(uploadFile, {
         onUploadProgress: (percentage) => setUploadProgress(percentage),
       });
+      if (generation !== uploadGenerationRef.current) {
+        discardPendingUpload(result.uploadToken);
+        return;
+      }
       setVideoUrl(result.url);
+      setUploadToken(result.uploadToken);
       toast.success("Video uploaded");
     } catch (err) {
       setVideoError(err instanceof Error ? err.message : "Upload failed. Please try again.");
@@ -308,12 +320,22 @@ export function WorkoutEntryForm({
 
   function clearVideo() {
     setVideoUrl("");
+    setUploadToken(null);
     setYoutubeId(null);
     setYoutubeInput("");
     setFilePreview(null);
     setDurationSec(null);
     setDurationDetected(false);
     setVideoError(null);
+  }
+
+  /** Throws out the current video, deleting its not-yet-saved upload (if any) right away. Unlike
+   *  clearVideo() alone, which is also used right after a save, when the upload is already in
+   *  videos/ and must be kept. */
+  function discardVideo() {
+    discardPendingUpload(uploadToken);
+    uploadGenerationRef.current += 1;
+    clearVideo();
   }
 
   const minutes = durationSec != null ? Math.floor(durationSec / 60) : "";
@@ -364,6 +386,7 @@ export function WorkoutEntryForm({
       videoUrl: replacingVideo ? videoUrl : initialData!.videoUrl,
       youtubeId: replacingVideo ? (videoSource === "YOUTUBE" ? youtubeId : null) : initialData!.youtubeId,
       durationSec: replacingVideo ? durationSec : initialData!.durationSec,
+      uploadToken: replacingVideo && videoSource === "UPLOAD" ? uploadToken : null,
       sets: sets ? Number(sets) : null,
       reps: reps ? Number(reps) : null,
       tags,
@@ -372,11 +395,12 @@ export function WorkoutEntryForm({
       isFavorite,
       succeeded,
       fulfillsPlanId: mode === "create" ? (fromPlan?.id ?? null) : undefined,
-      videos: additionalVideos.map(({ videoSource: vs, videoUrl: vu, youtubeId: yid, durationSec: ds }) => ({
+      videos: additionalVideos.map(({ videoSource: vs, videoUrl: vu, youtubeId: yid, durationSec: ds, uploadToken: token }) => ({
         videoSource: vs,
         videoUrl: vu,
         youtubeId: yid,
         durationSec: ds,
+        uploadToken: token ?? null,
       })),
     };
 
@@ -474,7 +498,7 @@ export function WorkoutEntryForm({
                 value={videoSource}
                 onValueChange={(v) => {
                   setVideoSource(v as VideoSource);
-                  clearVideo();
+                  discardVideo();
                 }}
               >
                 <TabsList>
@@ -547,7 +571,7 @@ export function WorkoutEntryForm({
                     {!uploading && videoUrl && (
                       <p className="text-xs text-emerald-600 dark:text-emerald-400">Uploaded ✓</p>
                     )}
-                    <Button type="button" variant="ghost" size="sm" onClick={clearVideo}>
+                    <Button type="button" variant="ghost" size="sm" onClick={discardVideo}>
                       <X className="size-3.5" /> Choose a different file
                     </Button>
                   </div>
@@ -602,9 +626,12 @@ export function WorkoutEntryForm({
                     variant="ghost"
                     size="icon-sm"
                     aria-label={`Remove video ${i + 2}`}
-                    onClick={() =>
-                      setAdditionalVideos((prev) => prev.filter((x) => x.key !== v.key))
-                    }
+                    onClick={() => {
+                      // Only a new upload still under pending/ is deleted here; an extra that was
+                      // already saved stays until the entry is saved without it.
+                      discardPendingUpload(v.uploadToken);
+                      setAdditionalVideos((prev) => prev.filter((x) => x.key !== v.key));
+                    }}
                   >
                     <X className="size-3.5" />
                   </Button>

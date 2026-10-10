@@ -158,6 +158,11 @@ vercel env pull .env.local
 5. Check the setup with `npx tsx scripts/r2-healthcheck.ts [--origin https://your-app-domain]`.
    It PUTs a `_healthcheck.txt` object, reads it back through the custom domain, sends a
    browser-style CORS preflight, and then deletes the test object. It prints pass/fail only.
+6. Add a lifecycle rule so abandoned uploads expire (bucket → Settings → Object lifecycle rules →
+   Add rule): name it `expire-pending-uploads`, set the prefix to `pending/`, turn on **Delete
+   uploaded objects** after **1 day**, and save. New uploads wait under `pending/` until their
+   entry is saved (see [Video storage](#video-storage-cloudflare-r2)). Get the prefix right: a rule
+   without a prefix applies to the whole bucket and would delete saved videos too.
 
 ### 4. Install dependencies and set up the database schema
 
@@ -304,12 +309,30 @@ Video bytes never pass through a Vercel function:
    `Content-Type`, `Content-Length` and `Cache-Control` are signed into the URL, so R2 rejects
    (403) any upload of a different size or type. R2 has no POST policies, so this is how the size
    cap is enforced.
+   The object key is `pending/<random>.mp4`, and the response also carries an **upload token**:
+   an HMAC (keyed off `SITE_PASSWORD`) over that key, the user's id and a 20-hour expiry.
 3. The browser PUTs the file straight to R2 with `XMLHttpRequest` (for upload progress, see
-   [src/lib/r2-upload.ts](src/lib/r2-upload.ts)) and saves the entry with the returned URL.
+   [src/lib/r2-upload.ts](src/lib/r2-upload.ts)).
+4. Saving the entry (create or edit, primary or extra video) sends the pending URL together with
+   its token. The entry route checks the token belongs to this user and matches the URL, checks
+   the pending object exists, copies it to `videos/<same random>.mp4` (CopyObject, keeping
+   Content-Type and Cache-Control), writes the `videos/` URL to the database, and then deletes the
+   pending object ([src/lib/pending-uploads.ts](src/lib/pending-uploads.ts)). If the database
+   write fails, the copy is removed again.
+
+So `videos/` only ever holds videos that an entry references. An upload whose form is abandoned
+stays under `pending/` until the bucket's lifecycle rule deletes it (setup step 6). "Choose a
+different file", switching to a YouTube link, and removing an unsaved extra video delete their
+pending object straight away through [`/api/r2/discard`](src/app/api/r2/discard/route.ts), which
+also needs the token.
+
+The entry routes never accept a client-supplied upload URL on its own. An `UPLOAD` video has to
+be either a pending upload with a valid token, or (on edit only) one of that same entry's
+existing videos. YouTube videos can't point into the bucket.
 
 Details:
 
-- **Keys are `videos/<24 random hex chars>.mp4`**, with nothing from the original filename.
+- **Keys are `pending/` or `videos/` + `<24 random hex chars>.mp4`**, with nothing from the original filename.
   Phone cameras name files after the recording time (`PXL_20260921_144039930.mp4`), and these
   URLs are public. They can't be guessed, but anyone who has one can watch the video.
 - **Every object is stored with `Cache-Control: public, max-age=300`**
@@ -543,6 +566,7 @@ from a network that allows it.
 | [`scripts/import-db.ts`](scripts/import-db.ts) | **Restore.** `--target-url "<postgres url>" [--dir backup/db] [--allow-remote]`. Loads an export into an already-migrated, **empty** database in one transaction, keeping ids and timestamps, then checks the row counts. It refuses any database that already has rows, and any non-localhost target unless you pass `--allow-remote`. |
 | [`scripts/wipe-database.ts`](scripts/wipe-database.ts) | **Destructive.** Deletes every row of every table. Schema and migration history are kept (no `DROP`). Requires `--i-have-checked-the-backup` and an existing `backup/db/counts.json`. It shows the live counts next to the backup's and asks you to type `WIPE`. Afterwards, run `node scripts/seed-admin.js` to recreate the admin from `SITE_PASSWORD`. |
 | [`scripts/map-backup-videos.ts`](scripts/map-backup-videos.ts) | Local files only. Maps every uploaded-video URL in the export to its file under `backup/videos/` (writes `backup/video-map.json`) and reports orphans in both directions. |
+| [`scripts/list-orphaned-videos.ts`](scripts/list-orphaned-videos.ts) | **Read-only.** Lists objects under `videos/` in R2 that no `WorkoutEntry` or `EntryVideo` row references, with size and upload time. Deletes nothing. |
 | [`scripts/r2-healthcheck.ts`](scripts/r2-healthcheck.ts) | Checks the R2 setup: a PUT, a public GET, the CORS preflight (including `cache-control`), then deletes its own test object. |
 | [`scripts/test-db-scripts-local.ts`](scripts/test-db-scripts-local.ts) | Runs import, a field-by-field compare, a refused second import, and the wipe against an in-memory PGlite database. Never touches a real one. |
 

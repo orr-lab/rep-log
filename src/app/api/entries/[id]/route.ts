@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { entryUpdateSchema } from "@/lib/validation";
 import { getSession } from "@/lib/session";
 import { deleteStoredVideo } from "@/lib/video-storage";
+import { promoteEntryUploads, UploadRejectedError, type Promotions, withoutUploadToken } from "@/lib/pending-uploads";
 
 export async function GET(
   _request: NextRequest,
@@ -38,33 +39,55 @@ export async function PATCH(
 
   const existing = await prisma.workoutEntry.findUnique({
     where: { id, userId: session.userId },
-    select: { id: true },
+    select: {
+      videoSource: true,
+      videoUrl: true,
+      videos: { select: { videoSource: true, videoUrl: true } },
+    },
   });
   if (!existing) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const { recordedAt, videos, ...rest } = parsed.data;
+  const { recordedAt, videos, uploadToken, ...rest } = parsed.data;
+
+  // The entry's own uploaded videos may be sent back as-is (kept or reordered); anything else
+  // with videoSource UPLOAD must be a fresh pending/ upload with its token, which gets moved to
+  // videos/ before the write -- see src/lib/pending-uploads.ts.
+  const currentUploadUrls = [existing, ...existing.videos]
+    .filter((v) => v.videoSource === "UPLOAD")
+    .map((v) => v.videoUrl);
+  const refs = [
+    ...(rest.videoUrl !== undefined
+      ? [{ videoSource: rest.videoSource ?? existing.videoSource, videoUrl: rest.videoUrl, uploadToken }]
+      : []),
+    ...(videos ?? []),
+  ];
+  let promotions: Promotions;
+  try {
+    promotions = await promoteEntryUploads(refs, session.userId, new Set(currentUploadUrls));
+  } catch (err) {
+    if (err instanceof UploadRejectedError) return NextResponse.json({ error: err.message }, { status: 400 });
+    throw err;
+  }
+  if (rest.videoUrl !== undefined) rest.videoUrl = refs[0].videoUrl;
 
   // Presence of `videos` (even []) means "replace the full set of extra videos" -- its absence
-  // (e.g. a plain isFavorite toggle) leaves them untouched. Any UPLOAD-sourced videos being
-  // dropped get their stored R2 object cleaned up once the DB write
-  // has actually committed.
+  // (e.g. a plain isFavorite toggle) leaves them untouched. Uploaded extras that are no longer
+  // referenced anywhere on the entry get their R2 object deleted once the write has committed.
+  // (Only the ones actually dropped: kept extras are sent back with the same URL and must survive.)
   let staleUploadUrls: string[] = [];
   try {
     const entry = await prisma.$transaction(async (tx) => {
       if (videos !== undefined) {
-        const current = await tx.entryVideo.findMany({
-          where: { entryId: id },
-          select: { videoUrl: true, videoSource: true },
-        });
-        staleUploadUrls = current
-          .filter((v) => v.videoSource === "UPLOAD")
+        const stillUsed = new Set([rest.videoUrl ?? existing.videoUrl, ...videos.map((v) => v.videoUrl)]);
+        staleUploadUrls = existing.videos
+          .filter((v) => v.videoSource === "UPLOAD" && !stillUsed.has(v.videoUrl))
           .map((v) => v.videoUrl);
         await tx.entryVideo.deleteMany({ where: { entryId: id } });
         if (videos.length > 0) {
           await tx.entryVideo.createMany({
-            data: videos.map((v, i) => ({ ...v, entryId: id, order: i })),
+            data: videos.map((v, i) => ({ ...withoutUploadToken(v), entryId: id, order: i })),
           });
         }
       }
@@ -78,10 +101,12 @@ export async function PATCH(
       });
     });
 
+    await promotions.commit();
     await Promise.all(staleUploadUrls.map(deleteStoredVideo));
 
     return NextResponse.json(entry);
   } catch {
+    await promotions.rollback();
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 }
