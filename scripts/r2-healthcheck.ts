@@ -6,7 +6,7 @@
 import { config } from "dotenv";
 import { DeleteObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { getR2Client, getR2Bucket, publicUrlForKey } from "../src/lib/r2";
+import { getR2Client, getR2Bucket, publicUrlForKey, VIDEO_CACHE_CONTROL } from "../src/lib/r2";
 
 config({ path: [".env.local", ".env"], quiet: true });
 
@@ -36,12 +36,12 @@ async function main() {
   // What the browser will do before PUTting to a presigned URL from the app's origin.
   const presigned = await getSignedUrl(
     client,
-    new PutObjectCommand({ Bucket: bucket, Key: `videos/_cors-preflight-test.mp4`, ContentType: "video/mp4", ContentLength: 1 }),
-    { expiresIn: 60, signableHeaders: new Set(["content-type", "content-length"]) }
+    new PutObjectCommand({ Bucket: bucket, Key: `videos/_cors-preflight-test.mp4`, ContentType: "video/mp4", ContentLength: 1, CacheControl: VIDEO_CACHE_CONTROL }),
+    { expiresIn: 60, signableHeaders: new Set(["content-type", "content-length", "cache-control"]) }
   );
   const pre = await fetch(presigned, {
     method: "OPTIONS",
-    headers: { Origin: origin, "Access-Control-Request-Method": "PUT", "Access-Control-Request-Headers": "content-type" },
+    headers: { Origin: origin, "Access-Control-Request-Method": "PUT", "Access-Control-Request-Headers": "content-type,cache-control" },
   });
   const allowOrigin = pre.headers.get("access-control-allow-origin");
   const corsOk = pre.ok && (allowOrigin === origin || allowOrigin === "*");
