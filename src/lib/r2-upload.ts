@@ -8,7 +8,7 @@ export async function uploadVideoToR2(
   const res = await fetch("/api/r2/upload-url", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ filename: file.name, contentType: file.type, size: file.size }),
+    body: JSON.stringify({ contentType: file.type, size: file.size }),
   });
   const data = (await res.json().catch(() => null)) as { uploadUrl?: string; url?: string; error?: string } | null;
   if (!res.ok || !data?.uploadUrl || !data.url) {

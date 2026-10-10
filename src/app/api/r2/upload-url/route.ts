@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getSession } from "@/lib/session";
 import { isVideoUploadEnabled, getMaxUploadBytes } from "@/lib/users";
-import { presignVideoUpload, publicUrlForKey, videoKeyFor } from "@/lib/r2";
+import { presignVideoUpload, publicUrlForKey, newVideoKey } from "@/lib/r2";
 
 const ALLOWED_CONTENT_TYPES = [
   "video/mp4",
@@ -13,7 +13,6 @@ const ALLOWED_CONTENT_TYPES = [
 ] as const;
 
 const requestSchema = z.object({
-  filename: z.string().trim().min(1).max(255),
   contentType: z.enum(ALLOWED_CONTENT_TYPES),
   size: z.number().int().positive(),
 });
@@ -37,7 +36,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   if (!parsed.success) {
     return NextResponse.json({ error: "Unsupported file type or invalid upload request." }, { status: 400 });
   }
-  const { filename, contentType, size } = parsed.data;
+  const { contentType, size } = parsed.data;
 
   const maxUploadBytes = await getMaxUploadBytes();
   if (size > maxUploadBytes) {
@@ -45,7 +44,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
 
   try {
-    const key = videoKeyFor(filename);
+    const key = newVideoKey();
     const uploadUrl = await presignVideoUpload(key, contentType, size);
     return NextResponse.json({ uploadUrl, url: publicUrlForKey(key) });
   } catch (error) {

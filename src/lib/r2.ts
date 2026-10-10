@@ -49,16 +49,10 @@ export function r2KeyFromUrl(url: string): string | null {
   return key ? decodeURIComponent(key) : null;
 }
 
-/** `videos/<random>-<sanitized-name>.mp4`, keeping only filename-safe characters. */
-export function videoKeyFor(filename: string): string {
-  const base = filename
-    .replace(/\.[^.]*$/, "")
-    .normalize("NFKD")
-    .replace(/[^a-zA-Z0-9_-]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 60)
-    .toLowerCase();
-  return `videos/${randomBytes(12).toString("hex")}-${base || "video"}.mp4`;
+/** `videos/<random>.mp4`. Deliberately nothing from the original filename -- phone cameras name
+ *  files after the recording time (e.g. PXL_20260921_144039930.mp4), and these URLs are public. */
+export function newVideoKey(): string {
+  return `videos/${randomBytes(12).toString("hex")}.mp4`;
 }
 
 /** Presigned PUT with Content-Type and Content-Length signed in, so the browser can only upload
