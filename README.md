@@ -103,6 +103,10 @@ Copy `.env.example` to `.env.local` (or use the values already pulled if you ran
 | `SITE_PASSWORD` | Pick your own password. This seeds the **admin** account the first time `scripts/seed-admin.js` runs (see [Accounts](#accounts) below) — after that, it no longer gates login directly (the admin changes their password from the Settings page instead), but it must stay set, since it also keys the session-cookie signature. Don't remove or rotate it later without expecting everyone to be logged out. |
 | `VISITOR_PASSWORD` | Optional. Seeds the admin's own visitor (read-only) password at the same one-time seeding step. Unlike `SITE_PASSWORD`, it has no ongoing role afterward — it's only ever read by `scripts/seed-admin.js`, which skips entirely once an admin account already exists. Once you've seeded (or if you don't need the admin to have visitor access), it's safe to leave unset or delete from your environment entirely; the live visitor password is managed from Settings from then on. |
 | `DATABASE_URL` | From your Postgres provider (Neon via Vercel Marketplace, or any Postgres). Pulled automatically by `vercel env pull` once connected. |
+| `R2_ACCOUNT_ID` | Your Cloudflare account ID (Cloudflare dashboard → R2 → Overview). Used to build the S3 endpoint `https://<R2_ACCOUNT_ID>.r2.cloudflarestorage.com`. |
+| `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | An R2 API token with **Object Read & Write** on the video bucket only (R2 → Manage API tokens). Server-only: they sign upload URLs and delete objects, and never reach the browser. |
+| `R2_BUCKET` | The bucket name, e.g. `rep-log-videos`. |
+| `R2_PUBLIC_BASE_URL` | The bucket's public custom domain, e.g. `https://media.example.com` (no trailing slash). Stored video URLs are `R2_PUBLIC_BASE_URL/videos/<random>.mp4`, so changing this later breaks existing entries' URLs. |
 | `GEMINI_API_KEY` | Optional. Powers the "AI feedback" button on an entry — Gemini watches the set and returns a 1-5 rating plus a few sentences of coaching feedback on form. Get a free key at [aistudio.google.com/apikey](https://aistudio.google.com/apikey). Leave unset to hide/disable the feature (it fails gracefully with a clear error if a request is made without it). |
 | `YOUTUBE_COOKIES` | Optional. Lets the AI-feedback feature fetch a YouTube entry's video itself instead of asking Gemini to (see [AI feedback](#ai-feedback-gemini) below for why, and how to get this value — it's a real login session, handle it like a credential). Leave unset to skip. |
 
@@ -127,7 +131,35 @@ same command to finish provisioning. Once it succeeds, pull the resulting env va
 vercel env pull .env.local
 ```
 
-### 3. Install dependencies and set up the database schema
+### 3. Set up Cloudflare R2 (video storage)
+
+1. In the Cloudflare dashboard, create an R2 bucket (R2 → Create bucket). The free tier
+   (10 GB stored, no egress fees) is plenty for this app.
+2. Connect a **custom domain** to the bucket (bucket → Settings → Custom Domains). The domain has
+   to be on Cloudflare, and it becomes your `R2_PUBLIC_BASE_URL`. Use a custom domain rather than
+   the rate-limited `r2.dev` URL.
+3. Add a CORS policy (bucket → Settings → CORS policy) so the browser can PUT straight to R2:
+
+   ```json
+   [
+     {
+       "AllowedOrigins": ["https://your-app-domain.example", "http://localhost:3000"],
+       "AllowedMethods": ["PUT", "GET", "HEAD"],
+       "AllowedHeaders": ["content-type", "cache-control"],
+       "MaxAgeSeconds": 3600
+     }
+   ]
+   ```
+
+   `cache-control` has to be allowed. Every upload sends a signed `Cache-Control` header (see
+   [Video storage](#video-storage-cloudflare-r2)), and the browser's preflight fails without it.
+4. Create an API token (R2 → Manage API tokens) with **Object Read & Write**, scoped to this
+   bucket, and put its access key ID and secret in `R2_ACCESS_KEY_ID`/`R2_SECRET_ACCESS_KEY`.
+5. Check the setup with `npx tsx scripts/r2-healthcheck.ts [--origin https://your-app-domain]`.
+   It PUTs a `_healthcheck.txt` object, reads it back through the custom domain, sends a
+   browser-style CORS preflight, and then deletes the test object. It prints pass/fail only.
+
+### 4. Install dependencies and set up the database schema
 
 ```bash
 npm install
@@ -149,7 +181,7 @@ It's idempotent — safe to re-run — and does nothing if an admin account alre
 admin's username defaults to `admin`; set `ADMIN_USERNAME` before running the script to pick your
 own (e.g. `ADMIN_USERNAME=orr node scripts/seed-admin.js`).
 
-### 4. Run it locally
+### 5. Run it locally
 
 ```bash
 npm run dev
@@ -158,14 +190,14 @@ npm run dev
 Visit [http://localhost:3000](http://localhost:3000) and log in with your admin username
 (`ADMIN_USERNAME`, or `admin` if unset) and `SITE_PASSWORD`.
 
-### 5. Deploy to Vercel
+### 6. Deploy to Vercel
 
 ```bash
 vercel deploy --prod
 ```
 
-Make sure `SITE_PASSWORD` (and `VISITOR_PASSWORD`, if you want the admin to have visitor access
-seeded automatically) are set as production environment variables in the Vercel dashboard (Project
+Make sure `SITE_PASSWORD`, the five `R2_*` variables (and `VISITOR_PASSWORD`, if you want the
+admin to have visitor access seeded automatically) are set as production environment variables in the Vercel dashboard (Project
 Settings → Environment Variables) — `vercel env pull` only pulls variables *from* Vercel, it won't
 push your local values there for you. Run `node scripts/seed-admin.js` once against production too
 (point `DATABASE_URL` at it) after the first deploy that includes the `User` table migration.
@@ -257,6 +289,40 @@ creation endpoint ([src/app/api/entries/route.ts](src/app/api/entries/route.ts))
 with a 403 if a direct upload is attempted while the toggle is off, so the block holds even against
 a raw API call. Editing an entry that already has an uploaded video still works as before —
 the toggle only blocks *new* uploads.
+
+## Video storage (Cloudflare R2)
+
+Uploaded videos live in a public Cloudflare R2 bucket, served from its custom domain. The
+database stores the plain public URL, so playback and the AI-feedback fetch are ordinary GETs.
+Video bytes never pass through a Vercel function:
+
+1. The browser compresses the file (see [Video compression](#video-compression)).
+2. It asks [`/api/r2/upload-url`](src/app/api/r2/upload-url/route.ts) for an upload URL, sending
+   only the content type and size. The route requires a session, checks the uploads toggle, the
+   size cap and a video content-type allowlist, then returns a 15-minute presigned PUT
+   ([src/lib/r2.ts](src/lib/r2.ts)) along with the headers the browser must send.
+   `Content-Type`, `Content-Length` and `Cache-Control` are signed into the URL, so R2 rejects
+   (403) any upload of a different size or type. R2 has no POST policies, so this is how the size
+   cap is enforced.
+3. The browser PUTs the file straight to R2 with `XMLHttpRequest` (for upload progress, see
+   [src/lib/r2-upload.ts](src/lib/r2-upload.ts)) and saves the entry with the returned URL.
+
+Details:
+
+- **Keys are `videos/<24 random hex chars>.mp4`**, with nothing from the original filename.
+  Phone cameras name files after the recording time (`PXL_20260921_144039930.mp4`), and these
+  URLs are public. They can't be guessed, but anyone who has one can watch the video.
+- **Every object is stored with `Cache-Control: public, max-age=300`**
+  (`VIDEO_CACHE_CONTROL` in [src/lib/r2.ts](src/lib/r2.ts)), so Cloudflare's edge stops serving a
+  deleted video within about 5 minutes. Note that Cloudflare's zone-level **Browser Cache TTL**
+  setting (Caching → Configuration, 4 hours by default) rewrites the `max-age` that browsers see.
+  So someone who already watched a video can keep replaying it from their own browser cache for
+  up to 4 hours. Set Browser Cache TTL to "Respect Existing Headers" if that matters to you.
+  Objects uploaded before this change don't have the header.
+- **Deleting** an entry (or one of its extra videos, or a whole account) deletes its R2 objects
+  once the database write has committed ([src/lib/video-storage.ts](src/lib/video-storage.ts)).
+  This is best-effort: a failed delete is logged and never blocks the database change. URLs
+  that aren't in the bucket (YouTube) are left alone.
 
 ## AI feedback (Gemini)
 
@@ -416,13 +482,24 @@ order:
    720p/30fps, CRF 28, via [ffmpeg.wasm](https://github.com/ffmpegwasm/ffmpeg.wasm). This is the
    fallback for any WebCodecs failure: unsupported browser, unsupported source codec, no hardware
    encoder available, or any other error. Uses the single-threaded ffmpeg.wasm core specifically
-   (self-hosted from `public/ffmpeg/`, copied from `@ffmpeg/core`'s build output) -- a
+   (self-hosted from `public/ffmpeg/`, copied from `@ffmpeg/core`'s **ESM** build in
+   `dist/esm/`, because the UMD build can't load in the module worker that `@ffmpeg/ffmpeg` starts) -- a
    multi-threaded core (`@ffmpeg/core-mt`, which needs cross-origin-isolation headers app-wide)
    was tried and reverted, since self-hosted this way it reliably hung indefinitely during its
    worker-thread pool init rather than actually completing a transcode.
 
-If both paths fail (an unsupported format, a browser without WASM/WebCodecs support, a bug), the
-original file uploads as-is instead of blocking the set from being logged at all.
+Neither path can hang forever:
+
+- **WebCodecs** gives up after 20 seconds without decoding or encoding a frame. This is what
+  catches Safari on macOS, where a flush could decode every frame and then never finish, leaving
+  the form stuck on "Compressing... 100%".
+- **ffmpeg** gives up if its core takes over 90 seconds to load, or if a running encode logs
+  nothing for 30 seconds. In that case the worker is terminated.
+
+The failure reason shows in a toast that stays up until dismissed.
+
+If both paths fail (an unsupported format, a browser without WASM/WebCodecs support, a bug, a
+stall), the original file uploads as-is instead of blocking the set from being logged at all.
 
 Because the video is already shrunk before it's uploaded, the raw-file cap can afford to be
 generous — 2048MB (2GB) by default, covering even a multi-minute 4K phone recording — while what
@@ -446,6 +523,34 @@ the "compression failed, uploading the original" fallback path too, not just the
 - Check the current Cloudflare R2 and Neon pricing pages before you scale this up — free-tier
   limits change over time and aren't hard-coded into this app.
 
+## Maintenance scripts (backup, export, import, wipe)
+
+These scripts run locally with `npx tsx` and read `DATABASE_URL` (and `R2_*`) from `.env.local`.
+They write only to `backup/`, which is git-ignored and must never be committed: it holds videos and
+full database exports, password hashes included. They print counts and pass/fail only, never row
+contents, URLs or secrets.
+
+**They connect to Neon over port 443.** Plain Prisma needs outbound port 5432, which some networks
+block. These scripts use the Neon serverless driver over WebSockets on port 443 instead
+(`@prisma/adapter-neon`, see [scripts/lib/db-client.ts](scripts/lib/db-client.ts)), and fall back
+to the normal Prisma engine for a `localhost` URL. `scripts/seed-admin.js` does the same. The
+deployed app isn't affected. `npx prisma migrate ...` still needs port 5432, so run migrations
+from a network that allows it.
+
+| Script | What it does |
+|---|---|
+| [`scripts/export-db.ts`](scripts/export-db.ts) | **Backup.** Read-only. Exports every row of every table to `backup/db/<Model>.json`, plus `_prisma_migrations`, the schema, the migrations folder and `counts.json`. Each table's count is checked against `SELECT COUNT(*)`. |
+| [`scripts/import-db.ts`](scripts/import-db.ts) | **Restore.** `--target-url "<postgres url>" [--dir backup/db] [--allow-remote]`. Loads an export into an already-migrated, **empty** database in one transaction, keeping ids and timestamps, then checks the row counts. It refuses any database that already has rows, and any non-localhost target unless you pass `--allow-remote`. |
+| [`scripts/wipe-database.ts`](scripts/wipe-database.ts) | **Destructive.** Deletes every row of every table. Schema and migration history are kept (no `DROP`). Requires `--i-have-checked-the-backup` and an existing `backup/db/counts.json`. It shows the live counts next to the backup's and asks you to type `WIPE`. Afterwards, run `node scripts/seed-admin.js` to recreate the admin from `SITE_PASSWORD`. |
+| [`scripts/map-backup-videos.ts`](scripts/map-backup-videos.ts) | Local files only. Maps every uploaded-video URL in the export to its file under `backup/videos/` (writes `backup/video-map.json`) and reports orphans in both directions. |
+| [`scripts/r2-healthcheck.ts`](scripts/r2-healthcheck.ts) | Checks the R2 setup: a PUT, a public GET, the CORS preflight (including `cache-control`), then deletes its own test object. |
+| [`scripts/test-db-scripts-local.ts`](scripts/test-db-scripts-local.ts) | Runs import, a field-by-field compare, a refused second import, and the wipe against an in-memory PGlite database. Never touches a real one. |
+
+The one-off script that downloaded every Vercel Blob object into `backup/videos/`
+(`scripts/backup-videos.ts`) was removed along with Blob. It's still in git history. To back up
+the R2 bucket, point any S3-compatible tool at it, e.g. `rclone copy`, or
+`aws s3 sync --endpoint-url https://<R2_ACCOUNT_ID>.r2.cloudflarestorage.com`.
+
 ## Project structure
 
 - `prisma/schema.prisma` — the `WorkoutEntry`, `User`, `Comment`, `WorkoutPlan`, `ManualRecord`,
@@ -463,8 +568,11 @@ the "compression failed, uploading the original" fallback path too, not just the
 - `src/lib/public-scope.ts` — the single toggle-check gating the whole public visitor surface
 - `src/lib/gemini.ts`/`src/lib/ytdlp.ts`/`src/lib/youtube.ts` — AI feedback: Gemini calls,
   YouTube video download, and YouTube URL/ID parsing
-- `src/lib/video-compress.ts` — client-side ffmpeg.wasm video compression, see
-  [Video compression](#video-compression)
+- `src/lib/video-compress.ts`/`src/lib/video-compress-webcodecs.ts` — client-side video
+  compression (WebCodecs first, ffmpeg.wasm fallback), see [Video compression](#video-compression)
+- `src/lib/r2.ts`/`src/lib/r2-upload.ts`/`src/lib/video-storage.ts` — R2 client, keys and
+  presigned PUTs (server), the browser-side upload, and best-effort deletes, see
+  [Video storage](#video-storage-cloudflare-r2)
 - `src/lib/video-metadata.ts` — best-effort extraction of an uploaded video's recording date from
   its MP4/MOV container metadata, used to autofill the entry form's date field
 - `src/lib/stats.ts` — streak, training-time, grouping, personal-record, and
@@ -481,6 +589,8 @@ the "compression failed, uploading the original" fallback path too, not just the
 - `scripts/seed-admin.js` — one-time rollout script, see [Accounts](#accounts)
 - `scripts/reset-password.js` — local-only break-glass password reset, see
   [Resetting a forgotten password](#resetting-a-forgotten-password)
+- `scripts/*.ts` — backup/export/import/wipe and R2 maintenance scripts, see
+  [Maintenance scripts](#maintenance-scripts-backup-export-import-wipe)
 - `scripts/generate-favicon.js` — local-only tool that rasterizes `src/app/icon.svg` into
   `src/app/favicon.ico`; rerun it by hand if you ever change the icon (not part of the app itself)
 - `src/app/api/*` — entries CRUD (scoped per account, includes the `succeeded` flag), entry
