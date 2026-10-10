@@ -16,6 +16,8 @@ const eslintConfig = defineConfig([
     // public/ so it's self-hosted, see src/lib/video-compress.ts) -- generated/minified
     // third-party output, not something to hold to this project's lint rules.
     "public/ffmpeg/**",
+    // Local, git-ignored migration backups and scratch files.
+    "backup/**",
   ]),
   {
     // Standalone CommonJS scripts run directly via `node scripts/*.js`, outside the Next.js

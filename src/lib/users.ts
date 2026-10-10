@@ -192,7 +192,7 @@ export async function setVideoUploadsEnabled(userId: string, enabled: boolean): 
 
 /** App-wide setting, same pattern as isVideoUploadEnabled -- read from the admin's row
  *  regardless of which account is uploading. Returns bytes, since that's what both the client
- *  dropzone check and the Blob upload token's maximumSizeInBytes actually need. */
+ *  dropzone check and the R2 upload-url route's size check actually need. */
 export async function getMaxUploadBytes(): Promise<number> {
   const admin = await prisma.user.findFirst({
     where: { isAdmin: true },

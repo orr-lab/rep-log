@@ -41,7 +41,7 @@ export function publicUrlForKey(key: string): string {
   return `${publicBaseUrl()}/${key}`;
 }
 
-/** The object key for a videoUrl we stored, or null if it isn't one of ours (e.g. a Blob URL). */
+/** The object key for a videoUrl we stored, or null if it isn't one of ours. */
 export function r2KeyFromUrl(url: string): string | null {
   const prefix = `${publicBaseUrl()}/`;
   if (!url.startsWith(prefix)) return null;

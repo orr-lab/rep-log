@@ -11,7 +11,7 @@ on (see [Public visitor profile](#public-visitor-profile-optional)).
 
 **Live at [replog.orrknaan.com](https://replog.orrknaan.com).**
 
-Built with Next.js (App Router) + TypeScript, Tailwind + shadcn/ui, Prisma + Postgres, Vercel Blob
+Built with Next.js (App Router) + TypeScript, Tailwind + shadcn/ui, Prisma + Postgres, Cloudflare R2
 for uploaded video, and Recharts for the stats page.
 
 > **A note on the stack:** this targets the latest stable Next.js (16) and Postgres (Neon, via
@@ -89,33 +89,27 @@ exercise or gym on `/records` (see [Manual records](#manual-records)).
 ### Prerequisites
 
 - Node.js 20+
-- A Vercel account (for Blob storage and Postgres) — the free/Hobby tier covers this app
+- A Vercel account (for hosting and Postgres) — the free/Hobby tier covers this app
+- A Cloudflare account with an R2 bucket for uploaded videos
 - The [Vercel CLI](https://vercel.com/docs/cli) (`npm i -g vercel`), logged in (`vercel login`)
 
 ### 1. Environment variables
 
 Copy `.env.example` to `.env.local` (or use the values already pulled if you ran `vercel link` +
-`vercel blob create-store`, see below):
+`vercel env pull`, see below):
 
 | Variable | Where it comes from |
 |---|---|
 | `SITE_PASSWORD` | Pick your own password. This seeds the **admin** account the first time `scripts/seed-admin.js` runs (see [Accounts](#accounts) below) — after that, it no longer gates login directly (the admin changes their password from the Settings page instead), but it must stay set, since it also keys the session-cookie signature. Don't remove or rotate it later without expecting everyone to be logged out. |
 | `VISITOR_PASSWORD` | Optional. Seeds the admin's own visitor (read-only) password at the same one-time seeding step. Unlike `SITE_PASSWORD`, it has no ongoing role afterward — it's only ever read by `scripts/seed-admin.js`, which skips entirely once an admin account already exists. Once you've seeded (or if you don't need the admin to have visitor access), it's safe to leave unset or delete from your environment entirely; the live visitor password is managed from Settings from then on. |
 | `DATABASE_URL` | From your Postgres provider (Neon via Vercel Marketplace, or any Postgres). Pulled automatically by `vercel env pull` once connected. |
-| `BLOB_READ_WRITE_TOKEN` | Created automatically when you run `vercel blob create-store` (see below), or from the Blob store's settings in the Vercel dashboard. |
 | `GEMINI_API_KEY` | Optional. Powers the "AI feedback" button on an entry — Gemini watches the set and returns a 1-5 rating plus a few sentences of coaching feedback on form. Get a free key at [aistudio.google.com/apikey](https://aistudio.google.com/apikey). Leave unset to hide/disable the feature (it fails gracefully with a clear error if a request is made without it). |
 | `YOUTUBE_COOKIES` | Optional. Lets the AI-feedback feature fetch a YouTube entry's video itself instead of asking Gemini to (see [AI feedback](#ai-feedback-gemini) below for why, and how to get this value — it's a real login session, handle it like a credential). Leave unset to skip. |
 
-### 2. Set up Vercel Postgres (Neon) and Blob storage
+### 2. Set up Vercel Postgres (Neon)
 
 ```bash
 vercel link
-```
-
-Blob storage (first-party Vercel product, no extra sign-up):
-
-```bash
-vercel blob create-store rep-log-media --access public --yes
 ```
 
 Postgres is provided through Neon on Vercel's integration marketplace. This step requires
@@ -252,13 +246,13 @@ surface, for any account, admin included.
 
 ## Video uploads (admin-toggleable)
 
-By default, logging a set lets you either upload a video file directly (stored in Vercel Blob)
+By default, logging a set lets you either upload a video file directly (stored in Cloudflare R2)
 or paste a YouTube link. The admin can flip a toggle in Settings ("Allow direct video uploads")
 to turn off direct uploads app-wide, leaving YouTube links as the only way to attach a video —
-useful for keeping Blob storage usage down. It applies to every account, not just the admin's.
+useful for keeping storage usage down. It applies to every account, not just the admin's.
 
-The setting is enforced server-side in two places, not just hidden in the UI: the Blob upload-token
-endpoint ([src/app/api/blob/upload/route.ts](src/app/api/blob/upload/route.ts)) and the entry
+The setting is enforced server-side in two places, not just hidden in the UI: the R2 upload-URL
+endpoint ([src/app/api/r2/upload-url/route.ts](src/app/api/r2/upload-url/route.ts)) and the entry
 creation endpoint ([src/app/api/entries/route.ts](src/app/api/entries/route.ts)) both reject
 with a 403 if a direct upload is attempted while the toggle is off, so the block holds even against
 a raw API call. Editing an entry that already has an uploaded video still works as before —
@@ -273,7 +267,7 @@ alignment/safety, tempo and control, breathing, and exercise-specific technique 
 piano take, which is mostly an audio one — so unlike an audio-only pipeline, this always sends
 Gemini the actual video, ignoring whatever audio is present (grunting, gym noise, music).
 
-- **Uploaded video files** are fetched from Blob storage and pushed to Gemini's Files API
+- **Uploaded video files** are fetched from R2 storage and pushed to Gemini's Files API
   directly (no external indexing dependency), so this path is reliable as soon as an entry
   exists.
 - **YouTube links** are handled by downloading the video ourselves with a bundled `yt-dlp` binary
@@ -402,7 +396,7 @@ unlike comments and plans, since a visitor shouldn't be able to fabricate an acc
 
 ## Video compression
 
-Uploaded videos are compressed client-side before they ever reach Blob storage, in
+Uploaded videos are compressed client-side before they ever reach R2 storage, in
 [src/lib/video-compress.ts](src/lib/video-compress.ts). `compressVideo()` tries two paths, in
 order:
 
@@ -432,12 +426,12 @@ original file uploads as-is instead of blocking the set from being logged at all
 
 Because the video is already shrunk before it's uploaded, the raw-file cap can afford to be
 generous — 2048MB (2GB) by default, covering even a multi-minute 4K phone recording — while what
-actually lands in (and gets billed against) Blob storage stays modest. This cap is admin-only and
+actually lands in (and gets billed against) R2 storage stays modest. This cap is admin-only and
 app-wide, same pattern as the video-uploads toggle: `maxUploadMB` on the admin's `User` row, set
 from Settings → Storage, read via `getMaxUploadBytes()` in
 [src/lib/users.ts](src/lib/users.ts). It drives both the client-side dropzone's rejection check
-and the Blob upload token's actual `maximumSizeInBytes` (see
-[src/app/api/blob/upload/route.ts](src/app/api/blob/upload/route.ts)), so raising or lowering it
+and the R2 upload-URL route's size check (see
+[src/app/api/r2/upload-url/route.ts](src/app/api/r2/upload-url/route.ts)), so raising or lowering it
 in Settings takes effect immediately for every account, no redeploy needed — and it has to cover
 the "compression failed, uploading the original" fallback path too, not just the common case.
 
@@ -445,11 +439,11 @@ the "compression failed, uploading the original" fallback path too, not just the
 
 - **Uploads are compressed client-side; the raw-file cap is admin-configurable** (2048MB/2GB by
   default) — see [Video compression](#video-compression) above. Uploads go straight from the
-  browser to Blob storage (via `@vercel/blob/client`'s `handleUpload`/token flow), bypassing
+  browser to R2 (via a short-lived presigned PUT URL), bypassing
   Vercel's serverless function body-size limit entirely.
 - **Neon's free tier** has limits on storage and active compute time; a personal training log
   with metadata-only rows (no video bytes in the database) stays tiny for a very long time.
-- Check the current Vercel Blob and Neon pricing pages before you scale this up — free-tier
+- Check the current Cloudflare R2 and Neon pricing pages before you scale this up — free-tier
   limits change over time and aren't hard-coded into this app.
 
 ## Project structure
@@ -493,7 +487,7 @@ the "compression failed, uploading the original" fallback path too, not just the
   comments (owner + visitor can post, owner-only delete), `plans/*` (owner + visitor can create,
   finer-grained delete rule enforced in-handler, see [Workout plans](#workout-plans)),
   `manual-records/*` (any session can read, owner-only create/delete, see
-  [Manual records](#manual-records)), Blob upload token endpoint, login/logout, facets (distinct
+  [Manual records](#manual-records)), `r2/upload-url` (presigned R2 upload URLs), login/logout, facets (distinct
   exercises/tags/gyms for filters and autocomplete), `users/*` (account management and personal
   toggles like climbing mode, admin-only where noted in-handler), `public/*` (read-only,
   unauthenticated, see [Public visitor profile](#public-visitor-profile-optional))

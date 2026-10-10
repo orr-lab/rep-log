@@ -38,7 +38,7 @@ export function VideoUploadToggle({ initialEnabled }: { initialEnabled: boolean 
         <Label htmlFor="video-uploads">Allow direct video uploads</Label>
         <p className="text-sm text-muted-foreground">
           Applies to every account. When off, everyone can still log sets with a YouTube link —
-          only direct file uploads (which use Blob storage) are turned off.
+          only direct file uploads (stored in Cloudflare R2) are turned off.
         </p>
       </div>
       <Switch

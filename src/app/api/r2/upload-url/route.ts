@@ -19,7 +19,7 @@ const requestSchema = z.object({
 });
 
 // Hands the browser a short-lived presigned PUT for a single video. R2 has no POST policies, so
-// the size/type limits the Blob token route used to enforce are checked here against what the
+// the size/type limits are checked here against what the
 // client declares, and then signed into the URL (Content-Length + Content-Type) -- R2 rejects a
 // PUT whose body doesn't match them.
 export async function POST(request: Request): Promise<NextResponse> {

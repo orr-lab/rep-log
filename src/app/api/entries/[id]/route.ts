@@ -48,7 +48,7 @@ export async function PATCH(
 
   // Presence of `videos` (even []) means "replace the full set of extra videos" -- its absence
   // (e.g. a plain isFavorite toggle) leaves them untouched. Any UPLOAD-sourced videos being
-  // dropped get their stored file (R2, or Blob for older uploads) cleaned up once the DB write
+  // dropped get their stored R2 object cleaned up once the DB write
   // has actually committed.
   let staleUploadUrls: string[] = [];
   try {

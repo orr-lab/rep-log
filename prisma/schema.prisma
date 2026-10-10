@@ -24,8 +24,8 @@ model User {
   // regardless of which account is uploading (see getMaxUploadBytes() in src/lib/users.ts).
   // Stored in MB rather than bytes so the admin-facing input is a plain, human-sized number.
   // This is a ceiling on the *raw* file a phone camera might produce, not the storage/transfer
-  // budget -- the video is compressed client-side before it ever reaches Blob storage (see
-  // src/lib/video-compress.ts) -- so it can reasonably be set well above what a personal Blob
+  // budget -- the video is compressed client-side before it ever reaches R2 storage (see
+  // src/lib/video-compress.ts) -- so it can reasonably be set well above what a personal storage
   // plan would want to store long-term.
   maxUploadMB           Int            @default(2048)
   // Personal preference, not admin-gated -- like visitorPasswordHash, each account controls its
@@ -101,7 +101,7 @@ model WorkoutEntry {
 // or another attempt at the same set/climb, logged in the same session instead of as a separate
 // entry (see the "Save & log another video" flow on WorkoutEntryForm, which is the older pattern
 // of creating a whole new entry per video). Same shape as the primary video fields on
-// WorkoutEntry, purely additive -- deleting the entry cascades to delete these rows too, but blob
+// WorkoutEntry, purely additive -- deleting the entry cascades to delete these rows too, but R2
 // cleanup for UPLOAD-sourced videos still has to happen at the app level (see the entries DELETE
 // route and deleteUserCascade in src/lib/users.ts).
 model EntryVideo {

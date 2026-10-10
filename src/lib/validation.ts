@@ -44,10 +44,10 @@ export const entryUpdateSchema = entryInputSchema.partial();
 // The raw upload cap is admin-configurable (see maxUploadMB on the User model, and
 // getMaxUploadBytes()/setMaxUploadMB() in src/lib/users.ts) -- these are just the fallback
 // default and the sane bounds enforced on that setting, not the cap itself. The video is
-// compressed client-side (see src/lib/video-compress.ts) before it ever reaches Blob storage, so
+// compressed client-side (see src/lib/video-compress.ts) before it ever reaches R2 storage, so
 // this is a ceiling on the raw file a phone camera might produce, not the storage/transfer budget
-// itself. It also doubles as the actual Blob upload token's size limit
-// (src/app/api/blob/upload/route.ts), so it has to comfortably cover the fallback path too: if
+// itself. It also doubles as the R2 upload-url route's size limit
+// (src/app/api/r2/upload-url/route.ts), so it has to comfortably cover the fallback path too: if
 // compression fails for some reason, the original file is uploaded as-is rather than blocking
 // the user, and it still needs to fit under this same ceiling.
 export const DEFAULT_MAX_UPLOAD_MB = 2048;

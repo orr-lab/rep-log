@@ -44,7 +44,7 @@ export function MaxUploadSizeInput({ initialMaxUploadMB }: { initialMaxUploadMB:
       <Label htmlFor="max-upload-mb">Raw upload cap</Label>
       <p className="text-sm text-muted-foreground">
         Applies to every account. This is a ceiling on the file a phone camera might produce —
-        every upload is compressed client-side before it reaches Blob storage, so raising this
+        every upload is compressed client-side before it reaches storage, so raising this
         doesn&apos;t proportionally raise your storage bill.
       </p>
       <div className="flex items-center gap-2">

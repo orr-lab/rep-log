@@ -19,7 +19,6 @@
     "@ffmpeg/util": "^0.12.2",
     "@google/genai": "^2.15.0",
     "@prisma/client": "^6.19.3",
-    "@vercel/blob": "^2.6.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.4.0",

@@ -68,7 +68,7 @@ function outputFileName(originalName: string): string {
 let queueTail: Promise<void> = Promise.resolve();
 
 /** Re-encodes a video client-side (H.264/AAC, capped at 720p/30fps, CRF 28) before upload, so
- *  the bytes that actually hit Blob storage -- and get re-transferred every time the video is
+ *  the bytes that actually hit R2 storage -- and get re-transferred every time the video is
  *  watched or sent to Gemini for AI feedback -- are meaningfully smaller than whatever a phone
  *  camera produced. Tries hardware-accelerated compression via the browser's own codecs first
  *  (see video-compress-webcodecs.ts) -- real hardware decode/encode is dramatically faster than
