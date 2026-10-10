@@ -55,19 +55,28 @@ export function newVideoKey(): string {
   return `videos/${randomBytes(12).toString("hex")}.mp4`;
 }
 
-/** Presigned PUT with Content-Type and Content-Length signed in, so the browser can only upload
- *  exactly the declared size and type -- R2 has no POST-policy equivalent to enforce a max size. */
+/** Stored on every uploaded video and sent back by R2 on each GET, so Cloudflare's edge (and the
+ *  browser) only cache a video for a few minutes. Without it the edge could keep serving a video
+ *  for a long time after it's deleted. Keys are random and never reused, so a short TTL costs
+ *  little more than some extra origin fetches. */
+export const VIDEO_CACHE_CONTROL = "public, max-age=300";
+
+/** Presigned PUT with Content-Type, Content-Length and Cache-Control signed in, so the browser can
+ *  only upload exactly the declared size and type -- R2 has no POST-policy equivalent to enforce a
+ *  max size. The browser has to send the returned `headers` exactly as given or R2 returns 403. */
 export async function presignVideoUpload(key: string, contentType: string, contentLength: number) {
-  return getSignedUrl(
+  const uploadUrl = await getSignedUrl(
     getR2Client(),
     new PutObjectCommand({
       Bucket: getR2Bucket(),
       Key: key,
       ContentType: contentType,
       ContentLength: contentLength,
+      CacheControl: VIDEO_CACHE_CONTROL,
     }),
-    { expiresIn: 15 * 60, signableHeaders: new Set(["content-type", "content-length"]) }
+    { expiresIn: 15 * 60, signableHeaders: new Set(["content-type", "content-length", "cache-control"]) }
   );
+  return { uploadUrl, headers: { "Content-Type": contentType, "Cache-Control": VIDEO_CACHE_CONTROL } };
 }
 
 export async function deleteR2Object(key: string): Promise<void> {

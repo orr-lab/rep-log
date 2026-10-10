@@ -10,16 +10,19 @@ export async function uploadVideoToR2(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ contentType: file.type, size: file.size }),
   });
-  const data = (await res.json().catch(() => null)) as { uploadUrl?: string; url?: string; error?: string } | null;
-  if (!res.ok || !data?.uploadUrl || !data.url) {
+  const data = (await res.json().catch(() => null)) as
+    | { uploadUrl?: string; headers?: Record<string, string>; url?: string; error?: string }
+    | null;
+  if (!res.ok || !data?.uploadUrl || !data.headers || !data.url) {
     throw new Error(data?.error ?? "Upload failed. Please try again.");
   }
-  const { uploadUrl, url } = data;
+  const { uploadUrl, headers, url } = data;
 
   await new Promise<void>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("PUT", uploadUrl);
-    xhr.setRequestHeader("Content-Type", file.type);
+    // Signed into the URL (see presignVideoUpload), so these must match exactly.
+    for (const [name, value] of Object.entries(headers)) xhr.setRequestHeader(name, value);
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) onUploadProgress?.((e.loaded / e.total) * 100);
     };

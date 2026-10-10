@@ -45,8 +45,8 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   try {
     const key = newVideoKey();
-    const uploadUrl = await presignVideoUpload(key, contentType, size);
-    return NextResponse.json({ uploadUrl, url: publicUrlForKey(key) });
+    const { uploadUrl, headers } = await presignVideoUpload(key, contentType, size);
+    return NextResponse.json({ uploadUrl, headers, url: publicUrlForKey(key) });
   } catch (error) {
     console.error("Failed to presign R2 upload:", error);
     return NextResponse.json({ error: "Upload failed" }, { status: 500 });
