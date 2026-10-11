@@ -27,7 +27,7 @@ import { ExertionPicker } from "@/components/exertion-picker";
 import { AutocompleteInput } from "@/components/autocomplete-input";
 import { extractYouTubeId, youtubeEmbedUrl } from "@/lib/youtube";
 import { extractVideoCreationDate } from "@/lib/video-metadata";
-import { compressVideo } from "@/lib/video-compress";
+import { compressionLabel, compressVideo } from "@/lib/video-compress";
 import { discardPendingUpload, uploadVideoToR2 } from "@/lib/r2-upload";
 import { COMMON_EXERCISES, COMMON_TAGS } from "@/lib/exercise-catalog";
 import { GRADE_OPTIONS, formatGrade, COMMON_CLIMBING_TAGS } from "@/lib/climbing";
@@ -138,6 +138,8 @@ export function WorkoutEntryForm({
   const [filePreview, setFilePreview] = useState<string | null>(null);
   const [compressing, setCompressing] = useState(false);
   const [compressionProgress, setCompressionProgress] = useState(0);
+  // Set once WebCodecs has failed and compressVideo() moved on to the ffmpeg.wasm fallback.
+  const [usingBackupCompressor, setUsingBackupCompressor] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [videoError, setVideoError] = useState<string | null>(null);
@@ -236,9 +238,14 @@ export function WorkoutEntryForm({
     let uploadFile = file;
     setCompressing(true);
     setCompressionProgress(0);
+    setUsingBackupCompressor(false);
     const compressStart = performance.now();
     try {
-      const result = await compressVideo(file, (ratio) => setCompressionProgress(ratio * 100));
+      const result = await compressVideo(
+        file,
+        (ratio) => setCompressionProgress(ratio * 100),
+        () => setUsingBackupCompressor(true)
+      );
       // Surfaced so a slow compression can be diagnosed from a phone with no devtools access --
       // "webcodecs" should be fast (hardware-accelerated where the device supports it),
       // "ffmpeg" is the pure-software fallback and is expected to take roughly as long as the
@@ -553,7 +560,7 @@ export function WorkoutEntryForm({
                           />
                         </div>
                         <p className="text-xs text-muted-foreground">
-                          Compressing… {Math.round(compressionProgress)}%
+                          {compressionLabel(usingBackupCompressor, compressionProgress)}
                         </p>
                       </div>
                     )}

@@ -342,8 +342,9 @@ Details:
   So someone who already watched a video can keep replaying it from their own browser cache for
   up to 4 hours. Set Browser Cache TTL to "Respect Existing Headers" if that matters to you.
   Objects uploaded before this change don't have the header.
-- **Deleting** an entry (or one of its extra videos, or a whole account) deletes its R2 objects
-  once the database write has committed ([src/lib/video-storage.ts](src/lib/video-storage.ts)).
+- **Deleting** an entry (or one of its extra videos, or a whole account), or **replacing** an
+  entry's video on edit, deletes the R2 objects the entry no longer references once the database
+  write has committed ([src/lib/video-storage.ts](src/lib/video-storage.ts)).
   This is best-effort: a failed delete is logged and never blocks the database change. URLs
   that aren't in the bucket (YouTube) are left alone.
 
@@ -500,7 +501,12 @@ order:
    both simpler and higher quality than re-encoding). Rotation is preserved as container metadata
    (mp4-muxer's `rotation` option) rather than baked into pixels, since WebCodecs VideoFrames come
    out in the source's stored orientation, unlike ffmpeg which auto-rotates before its filters
-   run.
+   run. The encoder uses H.264 **Baseline** (`avc1.42001f`): Safari's encoder accepts frames
+   configured as Main profile but never outputs a single chunk, which was the "stuck at
+   Compressing… 50%" hang. Samples are fed with backpressure (at most 8 queued in the decoder or
+   encoder), resumed by the codecs' `dequeue`/output events rather than timers, which Safari
+   throttles in background windows. A 1080p HEVC phone clip compresses in about 2 seconds in
+   Safari and Chrome.
 2. **ffmpeg.wasm** (below `compressVideoWebCodecs` in the same file) -- H.264/AAC, capped at
    720p/30fps, CRF 28, via [ffmpeg.wasm](https://github.com/ffmpegwasm/ffmpeg.wasm). This is the
    fallback for any WebCodecs failure: unsupported browser, unsupported source codec, no hardware
@@ -513,9 +519,8 @@ order:
 
 Neither path can hang forever:
 
-- **WebCodecs** gives up after 20 seconds without decoding or encoding a frame. This is what
-  catches Safari on macOS, where a flush could decode every frame and then never finish, leaving
-  the form stuck on "Compressing... 100%".
+- **WebCodecs** gives up after 5 seconds without decoding or encoding a frame (or a codec queue
+  shrinking), and the form shows "Switching to backup compressor…" while ffmpeg.wasm starts.
 - **ffmpeg** gives up if its core takes over 90 seconds to load, or if a running encode logs
   nothing for 30 seconds. In that case the worker is terminated.
 

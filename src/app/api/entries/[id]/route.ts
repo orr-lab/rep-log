@@ -73,17 +73,18 @@ export async function PATCH(
   if (rest.videoUrl !== undefined) rest.videoUrl = refs[0].videoUrl;
 
   // Presence of `videos` (even []) means "replace the full set of extra videos" -- its absence
-  // (e.g. a plain isFavorite toggle) leaves them untouched. Uploaded extras that are no longer
-  // referenced anywhere on the entry get their R2 object deleted once the write has committed.
-  // (Only the ones actually dropped: kept extras are sent back with the same URL and must survive.)
-  let staleUploadUrls: string[] = [];
+  // (e.g. a plain isFavorite toggle) leaves them untouched. Any of the entry's uploaded videos --
+  // a replaced primary or a dropped extra -- that the entry no longer references after this save
+  // gets its R2 object deleted once the write has committed. Only those: kept videos are sent back
+  // with the same URL (and one can move between primary and extras) and must survive.
+  const stillUsed = new Set([
+    rest.videoUrl ?? existing.videoUrl,
+    ...(videos ?? existing.videos).map((v) => v.videoUrl),
+  ]);
+  const staleUploadUrls = [...new Set(currentUploadUrls)].filter((url) => !stillUsed.has(url));
   try {
     const entry = await prisma.$transaction(async (tx) => {
       if (videos !== undefined) {
-        const stillUsed = new Set([rest.videoUrl ?? existing.videoUrl, ...videos.map((v) => v.videoUrl)]);
-        staleUploadUrls = existing.videos
-          .filter((v) => v.videoSource === "UPLOAD" && !stillUsed.has(v.videoUrl))
-          .map((v) => v.videoUrl);
         await tx.entryVideo.deleteMany({ where: { entryId: id } });
         if (videos.length > 0) {
           await tx.entryVideo.createMany({

@@ -88,6 +88,14 @@ export interface CompressResult {
   fallbackReason?: string;
 }
 
+/** Progress text under the compression bar. Right after the fallback starts, ffmpeg.wasm is still
+ *  downloading/initializing and reports no progress, so that gap gets its own message. */
+export function compressionLabel(usingBackupCompressor: boolean, percent: number): string {
+  if (!usingBackupCompressor) return `Compressing… ${Math.round(percent)}%`;
+  if (percent <= 0) return "Switching to backup compressor…";
+  return `Compressing with backup compressor… ${Math.round(percent)}%`;
+}
+
 function outputFileName(originalName: string): string {
   const base = originalName.replace(/\.[^.]+$/, "");
   return `${base || "video"}.mp4`;
@@ -113,10 +121,12 @@ let queueTail: Promise<void> = Promise.resolve();
  *  unsupported browser, unsupported source codec, no hardware encoder available, anything.
  *  Failure of the whole thing is always non-fatal from the caller's side -- a compression bug
  *  should never block logging a set, so callers should catch and fall back to uploading the
- *  original file. */
+ *  original file. `onFallback` fires when the WebCodecs attempt has failed and the ffmpeg.wasm
+ *  fallback is starting, so the UI can say so instead of looking stuck. */
 export function compressVideo(
   file: File,
-  onProgress?: (ratio: number) => void
+  onProgress?: (ratio: number) => void,
+  onFallback?: () => void
 ): Promise<CompressResult> {
   const run = async (): Promise<CompressResult> => {
     try {
@@ -124,6 +134,7 @@ export function compressVideo(
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       console.error("WebCodecs compression failed, falling back to ffmpeg.wasm:", err);
+      onFallback?.();
       // Restart the progress bar for the second attempt rather than leaving it wherever the
       // failed one stopped (often 99%, which reads as "stuck").
       onProgress?.(0);

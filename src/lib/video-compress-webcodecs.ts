@@ -27,6 +27,9 @@ const MAX_WIDTH = 1280;
 const MAX_HEIGHT = 720;
 const TARGET_FPS = 30;
 const TARGET_BITRATE = 2_000_000;
+/** How many chunks may wait in the decoder's or encoder's queue before feeding pauses. Small
+ *  enough to keep memory flat on a long clip, big enough to keep a hardware codec busy. */
+const MAX_QUEUE_SIZE = 8;
 
 interface DemuxedTrackInfo {
   id: number;
@@ -204,7 +207,14 @@ async function pickSupportedCodec(
   width: number,
   height: number
 ): Promise<{ codec: string; hardwareAcceleration?: HardwareAcceleration }> {
-  const candidates = ["avc1.4d0020", "avc1.42001f", "avc1.420015"];
+  // Baseline first. Reproduced in real Safari 27 (macOS) via safaridriver: configured with Main
+  // profile (avc1.4d0020), Safari's H.264 encoder accepts frames but never emits a single chunk --
+  // with or without prefer-hardware, with or without backpressure -- and flush() never settles,
+  // even though isConfigSupported says it's supported. That was the "stuck at Compressing... 50%"
+  // hang (50% = every frame decoded, none encoded). Baseline (no B-frames) encodes the same
+  // 1080p HEVC clip in ~2s there, and plays everywhere. Main stays as a last resort for any
+  // browser that has no Baseline encoder.
+  const candidates = ["avc1.42001f", "avc1.420015", "avc1.4d0020"];
   for (const hardwareAcceleration of ["prefer-hardware", undefined] as const) {
     for (const codec of candidates) {
       const support = await VideoEncoder.isConfigSupported({
@@ -240,12 +250,12 @@ async function pickSupportedDecoderHwAccel(
 }
 
 /** How long the decode/encode pipeline may go without a single decoded frame or encoded chunk
- *  before it's treated as hung. Confirmed from a real report: in Safari on macOS, a video could
- *  decode every frame (progress at 100%) and then never finish -- no error, no rejection, the
- *  awaited flush just never settled -- leaving the form stuck on "Compressing... 100%" forever.
- *  Even a slow software encoder emits a chunk every few hundred ms, so 20s of silence means it
- *  isn't coming back, and failing lets compressVideo() fall back to ffmpeg.wasm instead. */
-const STALL_TIMEOUT_MS = 20_000;
+ *  before it's treated as hung. A hang shows up as no error and no rejection, just an awaited
+ *  flush that never settles (see pickSupportedCodec for the Safari case that caused it). A
+ *  working pipeline emits something every few dozen ms -- Safari's decoder pauses for ~1s at
+ *  most -- so 5s of silence means it isn't coming back, and failing lets compressVideo() fall
+ *  back to ffmpeg.wasm instead. */
+const STALL_TIMEOUT_MS = 5_000;
 
 export async function compressVideoWebCodecs(
   file: File,
@@ -290,11 +300,20 @@ export async function compressVideoWebCodecs(
     fatalError ??= e instanceof Error ? e : new Error(String(e));
   };
   let lastActivity = performance.now();
-  const touch = () => {
+  // Wakes the feed loop below when it's paused for backpressure. Event-driven on purpose: a
+  // setTimeout poll gets throttled to seconds per tick in a Safari window that isn't frontmost
+  // (reproduced), which starved the loop while both queues sat empty.
+  let wakeFeeder: (() => void) | null = null;
+  const resetStallClock = () => {
     lastActivity = performance.now();
   };
+  /** Codec activity: a frame, a chunk, or a queue shrinking. */
+  const touch = () => {
+    resetStallClock();
+    wakeFeeder?.();
+  };
   const guard = <T,>(promise: Promise<T>, stage: string): Promise<T> => {
-    touch();
+    resetStallClock();
     return new Promise<T>((resolve, reject) => {
       const timer = setInterval(() => {
         if (fatalError) {
@@ -392,8 +411,25 @@ export async function compressVideoWebCodecs(
       ...(decoderHwAccel ? { hardwareAcceleration: decoderHwAccel } : {}),
     });
 
+    dec.addEventListener("dequeue", touch);
+    enc.addEventListener("dequeue", touch);
+    const queuesFull = () => dec.decodeQueueSize > MAX_QUEUE_SIZE || enc.encodeQueueSize > MAX_QUEUE_SIZE;
+
     for (const sample of videoSamples) {
       if (fatalError) throw fatalError;
+      // Backpressure: don't hand the decoder the whole file up front (hundreds of 1080p frames
+      // queued at once, each decoded frame then queued again on the encoder). Wait for either
+      // queue to drain first; guard() still fails this wait on an error or a stall.
+      while (queuesFull()) {
+        await guard(
+          new Promise<void>((resolve) => {
+            wakeFeeder = resolve;
+            if (!queuesFull()) resolve();
+          }),
+          "decoding"
+        );
+        wakeFeeder = null;
+      }
       dec.decode(
         new EncodedVideoChunk({
           type: sample.isKey ? "key" : "delta",

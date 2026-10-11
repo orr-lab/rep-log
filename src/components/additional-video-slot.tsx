@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { extractYouTubeId } from "@/lib/youtube";
-import { compressVideo } from "@/lib/video-compress";
+import { compressionLabel, compressVideo } from "@/lib/video-compress";
 import { discardPendingUpload, uploadVideoToR2 } from "@/lib/r2-upload";
 import type { VideoSource } from "@/lib/types";
 
@@ -53,6 +53,8 @@ export function AdditionalVideoSlot({
   const [filePreview, setFilePreview] = useState<string | null>(null);
   const [compressing, setCompressing] = useState(false);
   const [compressionProgress, setCompressionProgress] = useState(0);
+  // Set once WebCodecs has failed and compressVideo() moved on to the ffmpeg.wasm fallback.
+  const [usingBackupCompressor, setUsingBackupCompressor] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -102,9 +104,14 @@ export function AdditionalVideoSlot({
       let uploadFile = file;
       setCompressing(true);
       setCompressionProgress(0);
+      setUsingBackupCompressor(false);
       const compressStart = performance.now();
       try {
-        const result = await compressVideo(file, (ratio) => setCompressionProgress(ratio * 100));
+        const result = await compressVideo(
+          file,
+          (ratio) => setCompressionProgress(ratio * 100),
+          () => setUsingBackupCompressor(true)
+        );
         const seconds = ((performance.now() - compressStart) / 1000).toFixed(1);
         toast.message(
           `Compressed via ${result.method} in ${seconds}s` +
@@ -240,7 +247,7 @@ export function AdditionalVideoSlot({
                     />
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Compressing… {Math.round(compressionProgress)}%
+                    {compressionLabel(usingBackupCompressor, compressionProgress)}
                   </p>
                 </div>
               )}
